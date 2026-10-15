@@ -15,6 +15,11 @@
   "followup_months_before_end": 6,
   "import_min_confidence": 0.9,
 
+  "_lease_scan_comment": "Photo scan on New lease. Put your Claude API key in anthropic_api_key in config/settings.json (git-ignored), or set ANTHROPIC_API_KEY. Pages are sent to the Claude API and kept in data/scans/.",
+  "anthropic_api_key": "",
+  "lease_scan_model": "claude-opus-5-5",
+  "lease_scan_effort": "low",
+
   "message_char_limit": 1000,
   "min_rent": 900,
 

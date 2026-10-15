@@ -117,6 +117,12 @@ def followup_date(form, settings=None, today=None):
 def save(conn, form, settings=None):
     settings = settings or load_settings()
     clean = {k: str(form.get(k) or "").strip() for k in FIELD_KEYS}
+    try:  # which fields came from a photo scan, with confidence and evidence (New lease form)
+        scan = json.loads(form.get("scan_meta") or "null")
+    except ValueError:
+        scan = None
+    if scan:
+        clean["_scan"] = scan
     fu = followup_date(clean, settings)
     cur = conn.execute("INSERT INTO rentals (created_at, data, followup_date, lease_end, address) VALUES (?,?,?,?,?)",
                        (db.now(), json.dumps(clean, ensure_ascii=False), fu.isoformat(), clean["lease_end"], clean["address"]))

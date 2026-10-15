@@ -51,6 +51,37 @@ def _bool(v):
     raise ValueError("expected true or false")
 
 
+def clean_field(key, v):
+    """Normalise one lease field to the form's format. Returns (value, error, warning).
+    Shared by the import and the photo scan, so both arrive in the same shape."""
+    kind = KIND[key]
+    try:
+        if kind == "date":
+            v = "" if v in (None, "") else str(v).strip()
+            if v and (not DATE_RE.match(v) or not datetime.strptime(v, "%Y-%m-%d")):
+                raise ValueError("expected YYYY-MM-DD")
+        elif kind == "money":
+            v = _money(v)
+        elif kind == "check":
+            v = _bool(v)
+        elif kind.startswith("select:"):
+            v = "" if v in (None, "") else str(v).strip()
+            options = kind[7:].split("|")
+            match = next((o for o in options if o.lower() == v.lower()), None)
+            if v and not match:
+                return "", None, f"'{v}' is not one of {options}; left blank"
+            v = match or ""
+        elif kind == "email":
+            v = "" if v in (None, "") else str(v).strip().lower()
+            if v and not EMAIL_RE.match(v):
+                return "", None, f"'{v}' doesn't look like an email; left blank"
+        else:
+            v = "" if v is None else str(v).strip()
+    except (ValueError, TypeError) as e:
+        return "", str(e), None
+    return v, None, None
+
+
 def clean_record(rec, settings=None):
     """Validate one record. Returns (lease_fields, meta, errors, warnings)."""
     settings = settings or load_settings()
@@ -65,35 +96,11 @@ def clean_record(rec, settings=None):
 
     out = {}
     for key in leases.FIELD_KEYS:
-        v = rec.get(key)
-        kind = KIND[key]
-        try:
-            if kind == "date":
-                v = "" if v in (None, "") else str(v).strip()
-                if v and (not DATE_RE.match(v) or not datetime.strptime(v, "%Y-%m-%d")):
-                    raise ValueError("expected YYYY-MM-DD")
-            elif kind == "money":
-                v = _money(v)
-            elif kind == "check":
-                v = _bool(v)
-            elif kind.startswith("select:"):
-                v = "" if v in (None, "") else str(v).strip()
-                options = kind[7:].split("|")
-                match = next((o for o in options if o.lower() == v.lower()), None)
-                if v and not match:
-                    warnings.append(f"{key}: '{v}' is not one of {options}; left blank")
-                v = match or ""
-            elif kind == "email":
-                v = "" if v in (None, "") else str(v).strip().lower()
-                if v and not EMAIL_RE.match(v):
-                    warnings.append(f"{key}: '{v}' doesn't look like an email; left blank")
-                    v = ""
-            else:
-                v = "" if v is None else str(v).strip()
-        except (ValueError, TypeError) as e:
-            errors.append(f"{key}: {e}")
-            v = ""
-        out[key] = v
+        out[key], err, warn = clean_field(key, rec.get(key))
+        if err:
+            errors.append(f"{key}: {err}")
+        if warn:
+            warnings.append(f"{key}: {warn}")
 
     tenancy = str(rec.get("tenancy_status") or "unknown").strip().lower()
     if tenancy not in TENANCY:

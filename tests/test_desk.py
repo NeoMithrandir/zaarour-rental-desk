@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import db, feed, lease_import, leases, outreach, tal  # noqa: E402
+from desk import db, feed, lease_import, lease_scan, leases, outreach, tal  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
@@ -353,6 +353,103 @@ class TalTests(unittest.TestCase):
         self.assertIn("$1,546", leases.renewal_message(r, lang="en")["body"])
         r["tal_inputs"] = {"current_rent": "1600"}
         self.assertIn("1 650 $", leases.renewal_message(r, lang="fr")["body"])
+
+
+class FakeStream:
+    """Stands in for client.beta.messages.stream(): yields text in awkward chunks, like the API does."""
+    def __init__(self, text, stop="end_turn"):
+        self.text, self.stop, self.kwargs = text, stop, None
+
+    def __call__(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    @property
+    def text_stream(self):
+        return (self.text[i:i + 7] for i in range(0, len(self.text), 7))
+
+    def get_final_message(self):
+        class M:
+            pass
+        m = M()
+        m.stop_reason = self.stop
+        return m
+
+
+def fake_client(stream):
+    class Beta:
+        pass
+    c = Beta()
+    c.beta = Beta()
+    c.beta.messages = Beta()
+    c.beta.messages.stream = stream
+    return c
+
+
+MODEL_OUTPUT = "\n".join([
+    '{"field": "landlord_name", "value": "Jean Exemple", "confidence": 0.98, "evidence": "Locateur : Jean Exemple", "page": 1}',
+    '{"field": "lease_start", "value": "2026-07-01", "confidence": 0.97, "evidence": "du 1er juillet 2026", "page": 1}',
+    '{"field": "rent", "value": "1 850 $", "confidence": 0.7, "evidence": "1 850 (handwritten)", "page": 2}',
+    '{"field": "heating", "value": "landlord", "confidence": 0.95, "evidence": "Chauffage : locateur", "page": 2}',
+    '{"field": "lease_end", "value": "30 juin 2027", "confidence": 0.9}',
+    '{"field": "not_a_field", "value": "x"}',
+    'Some stray prose',
+    '{"done": true, "document": "TAL lease, 2 pages", "notes": "Page 2 is blurry"}',
+])
+
+
+class LeaseScanTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self._dir = lease_scan.SCAN_DIR
+        lease_scan.SCAN_DIR = Path(self.tmp.name) / "scans"
+        self.files = [{"name": "p1.jpg", "type": "image/jpeg", "data": "data:image/jpeg;base64,/9j/AAAA"},
+                      {"name": "p2.pdf", "type": "application/pdf", "data": "JVBERi0xLjQK"}]
+
+    def tearDown(self):
+        lease_scan.SCAN_DIR = self._dir
+        self.tmp.cleanup()
+
+    def test_stream_fills_fields_in_the_import_shape(self):
+        stream = FakeStream(MODEL_OUTPUT)
+        events = list(lease_scan.extract(self.files, client=fake_client(stream)))
+        self.assertEqual(events[0]["type"], "start")
+        fields = {e["field"]: e for e in events if e["type"] == "field"}
+        self.assertEqual(fields["rent"]["value"], "1850")             # normalised like the import
+        self.assertTrue(fields["rent"]["check"])                       # 0.7 < 0.9: highlighted to check
+        self.assertEqual(fields["heating"]["value"], "Landlord")
+        self.assertNotIn("lease_end", fields)                          # not YYYY-MM-DD: skipped, not guessed
+        self.assertEqual(events[-1], {"type": "done", "document": "TAL lease, 2 pages", "notes": "Page 2 is blurry"})
+        # Pages stay on this computer.
+        saved = sorted(p.name for p in (lease_scan.SCAN_DIR / events[0]["scan_id"]).iterdir())
+        self.assertEqual(saved, ["page-01.jpg", "page-02.pdf"])
+        # What went to the API: one image and one PDF block, the fallback opt-in, the configured model.
+        kinds = [b["type"] for b in stream.kwargs["messages"][0]["content"]]
+        self.assertEqual(kinds.count("image") + kinds.count("document"), 2)
+        self.assertEqual(stream.kwargs["fallbacks"], "default")
+
+    def test_refusal_and_bad_files(self):
+        events = list(lease_scan.extract(self.files[:1], client=fake_client(FakeStream("", stop="refusal"))))
+        self.assertEqual(events[-1]["type"], "error")
+        with self.assertRaises(lease_scan.ScanError):
+            list(lease_scan.extract([{"name": "x.docx", "type": "application/msword", "data": "AAAA"}]))
+        with self.assertRaises(lease_scan.ScanError):
+            list(lease_scan.extract([]))
+
+    def test_saved_lease_keeps_scan_provenance(self):
+        conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        meta = {"scan_id": "20261015-120000", "fields": {"rent": {"confidence": 0.7, "check": True}}}
+        rid = leases.save(conn, {"address": "1 Rue A", "city": "Laval", "landlord_name": "A", "tenant_names": "B",
+                                 "lease_start": "2026-07-01", "lease_end": "2027-06-30", "rent": "1850",
+                                 "scan_meta": json.dumps(meta)})
+        self.assertEqual(leases.get(conn, rid)["_scan"], meta)
+        conn.close()
 
 
 if __name__ == "__main__":

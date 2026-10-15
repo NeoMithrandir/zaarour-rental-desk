@@ -1,0 +1,2 @@
+# Only the New lease photo scan needs this; everything else is the standard library.
+anthropic

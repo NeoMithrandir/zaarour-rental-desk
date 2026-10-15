@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import capture, db, feed, learn, lease_import, leases, outreach, scan, tal
+from . import capture, db, feed, learn, lease_import, lease_scan, leases, outreach, scan, tal
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -80,12 +80,25 @@ def lease_form(values=None, errors=None):
 <p class="lede">Fill this in when a lease is signed. Saving adds it to the renewal tracker with a renewal call
 {months} months before the lease ends, writes the email to the office and prepares the lease sheet. Nothing is sent until you send the email.</p>
 {f'<div class="banner bad"><strong>Almost there.</strong><ul>{err}</ul></div>' if err else ''}
+<section class="card scanbox noprint" id="scanbox">
+<h2>Scan the lease</h2>
+<p class="muted">Take photos of each page with your phone or drop in scans or a PDF. The form fills itself as the pages
+are read; highlighted fields came from the photos, and orange ones need a closer look. Nothing saves until you click Save.
+The pages are sent to the Claude API to be read and kept on this computer in <code>data/scans/</code>.</p>
+<label class="dropzone" id="dropzone"><input type="file" id="scanfiles" accept="image/*,application/pdf" capture="environment" multiple>
+<span><b>Take photos or choose files</b> · or drop them here</span></label>
+<ul class="scanpages" id="scanpages"></ul>
+<div class="actions-row"><button type="button" class="primary" id="scanbtn" disabled>Read the pages</button>
+<span id="scanstatus" class="muted" role="status" aria-live="polite"></span></div>
+</section>
 <form method="post" action="/leases/new" class="form" id="leaseform" data-months="{months}">
+<input type="hidden" name="scan_meta" id="scan_meta" value="">
 {''.join(f'<section class="card fsec" id="{sid(s)}"><h2>{esc(s)}</h2><div class="grid">{"".join(f)}</div></section>' for s, f in sections.items())}
 <div class="savebar"><span id="left" class="muted"></span><span id="renewal" class="muted"></span>
 <button class="primary big" type="submit">Save and prepare email</button></div>
 </form></div></div>
-<script src="/ui/form.js"></script>"""
+<script src="/ui/form.js"></script>
+<script src="/ui/scan.js"></script>"""
     return page("New lease", body, "lease")
 
 
@@ -489,6 +502,36 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+    def _scan_stream(self, body):
+        """Stream the photo scan to the browser as server-sent events, one field at a time."""
+        events = lease_scan.extract(body.get("files") or [])
+        try:
+            first = next(events)
+        except lease_scan.ScanError as e:
+            return self._json({"error": str(e)}, 400)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def send(ev):
+            self.wfile.write(("data: " + json.dumps(ev, ensure_ascii=False) + "\n\n").encode("utf-8"))
+            self.wfile.flush()
+        try:
+            send(first)
+            try:
+                for ev in events:
+                    send(ev)
+            except lease_scan.ScanError as e:
+                send({"type": "error", "message": str(e)})
+            except Exception as e:  # never leave the form waiting on a silent stream
+                send({"type": "error", "message": f"The scan stopped: {e}"})
+            send({"type": "end"})
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         conn = db.connect()
@@ -505,6 +548,8 @@ class Handler(BaseHTTPRequestHandler):
                 lid = feed.add_manual(conn, body)
                 r = conn.execute("SELECT bucket FROM leads WHERE id=?", (lid,)).fetchone()
                 return self._json({"id": lid, "bucket": r["bucket"] if r else ""})
+            if path == "/api/lease-scan":
+                return self._scan_stream(body)
             if path == "/api/leases/import":
                 records = body.get("records", []) if isinstance(body, dict) else body
                 report = lease_import.import_records(conn, records)
