@@ -1,0 +1,161 @@
+"""Run with: python3 -m unittest discover -s tests"""
+import json
+import os
+import sys
+import tempfile
+import unittest
+from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from desk import db, feed, outreach, rentals  # noqa: E402
+from desk.checks import Checker, bucket  # noqa: E402
+from desk.config import load_areas, load_settings  # noqa: E402
+from desk.sources import kijiji  # noqa: E402
+from desk.text import address_key, city_of, postal_fsa  # noqa: E402
+
+
+def ad(i, title, address, by="ownr", desc="", poster="p1", cents=150000):
+    return {
+        "__typename": "RealEstateListing", "id": str(i), "title": title, "description": desc,
+        "imageUrls": [], "url": f"https://www.kijiji.ca/v-apartments-condos/x/{i}",
+        "activationDate": "2026-10-14T12:00:00.000Z", "sortingDate": "2026-10-14T12:00:00.000Z",
+        "adSource": "ORGANIC", "location": {"address": address, "coordinates": {"latitude": 45.5, "longitude": -73.8}},
+        "price": {"amount": cents}, "posterInfo": {"posterId": poster},
+        "attributes": {"all": [{"canonicalName": "forrentbyhousing", "canonicalValues": [by]},
+                               {"canonicalName": "numberbedrooms", "canonicalValues": ["2"]}]},
+    }
+
+
+def page_html(ads):
+    state = {f"RealEstateListing:{a['id']}": a for a in ads}
+    data = {"props": {"pageProps": {"__APOLLO_STATE__": state}}}
+    return f'<html><script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script></html>'
+
+
+FIXTURE = page_html([
+    ad(1, "Beau 4 1/2 rénové, eau chaude incluse", "Pierrefonds, QC H8Z 1V2"),
+    ad(2, "Cession de bail 3 1/2", "Laval, QC H7N 3Z7"),
+    ad(3, "Condo à louer", "1745 Rue de Plaisance, Terrebonne, QC J6X 0K7"),
+    ad(4, "Spacious 5 1/2 for rent, all appliances included", "445 Av. Lepage, Dorval, QC H9S 3G1",
+       desc="Listed by RE/MAX broker, call for showing"),
+    ad(5, "Apartments for rent near metro", "1225 Alexis-Nihon, Saint-Laurent, QC H4R 2A6", by="reprofessional", poster="pm"),
+    ad(6, "Bachelor 1 1/2", "2109 Rue Bonin, Montréal, QC H4M 1A1", cents=80000),
+    ad(7, "4½ lumineux à louer", "Boulevard Saint-Laurent, Montréal, QC H2X 2T3"),
+])
+
+
+class TextTests(unittest.TestCase):
+    def test_address_key_matches_variants(self):
+        a = address_key("4005, boul. des Sources O., Dollard-des-Ormeaux, QC H9B 2A6")
+        self.assertEqual(a, address_key("4005 Sources Blvd West, DDO"))
+        self.assertEqual(a, address_key("12-4005 boul des Sources ouest"))
+        self.assertEqual(address_key("Pierrefonds, QC H8Z 1V2"), "")
+
+    def test_postal_and_city(self):
+        self.assertEqual(postal_fsa("Laval, QC H7N 3Z7"), "H7N")
+        self.assertEqual(city_of("123 Rue X, Pierrefonds, QC H8Z 1V2"), "pierrefonds")
+
+
+class FeedTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        self.checker = Checker(load_areas(), self.settings)
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def leads(self):
+        return {l["source_id"]: l for l in kijiji.parse(FIXTURE, "test")}
+
+    def test_parse(self):
+        l = self.leads()["1"]
+        self.assertEqual(l["price"], 1500)
+        self.assertEqual(l["poster_type"], "owner")
+        self.assertEqual(l["id"], "kijiji:1")
+
+    def test_buckets(self):
+        got = {}
+        for sid, l in self.leads().items():
+            area, flags = self.checker.run(l)
+            got[sid] = (area, bucket(flags), {f["code"] for f in flags})
+        self.assertEqual(got["1"][:2], ("Pierrefonds-Roxboro", "review"))
+        self.assertIn("tenant_ad", got["2"][2])            # lease transfer: not a landlord
+        self.assertEqual(got["3"][1], "hidden")             # Terrebonne: out of area
+        self.assertEqual(got["4"][1], "broker")             # RE/MAX wording
+        self.assertEqual(got["5"][1], "review")             # property managers are kept (plan 1.8)
+        self.assertIn("property_manager", got["5"][2])
+        self.assertIn("small", got["6"][2])
+        self.assertEqual(got["7"][1], "hidden")             # boul. Saint-Laurent downtown is not Ville Saint-Laurent
+
+    def test_process_keeps_decisions(self):
+        leads = list(self.leads().values())
+        c = feed.process(self.conn, leads, self.checker)
+        self.assertEqual(c["new"], 7)
+        self.conn.execute("UPDATE leads SET status='sent' WHERE id='kijiji:1'")
+        c2 = feed.process(self.conn, list(self.leads().values()), self.checker)
+        self.assertEqual(c2["already_seen"], 7)
+        self.assertEqual(self.conn.execute("SELECT status FROM leads WHERE id='kijiji:1'").fetchone()[0], "sent")
+
+    def test_rejected_broker_poster_is_learned(self):
+        db.mark_poster(self.conn, "kijiji", "p1", "Rejected as broker by Stefan")
+        checker = Checker(load_areas(), self.settings, db.known_posters(self.conn))
+        _area, flags = checker.run(self.leads()["1"])
+        self.assertEqual(bucket(flags), "broker")
+
+
+class OutreachTests(unittest.TestCase):
+    def test_messages_have_disclaimer_and_fit(self):
+        s = load_settings()
+        lead = {"address": "Pierrefonds, QC H8Z 1V2", "area": "Pierrefonds-Roxboro"}
+        for lang in ("fr", "en"):
+            for kind in ("outreach", "followup"):
+                m = outreach.render(lead, s, lang, kind)
+                self.assertIn(outreach.DISCLAIMER[lang], m)
+                self.assertTrue(outreach.length_check(m, s)["ok"], (lang, kind, len(m)))
+        self.assertIn("Pierrefonds", outreach.render(lead, s, "fr"))
+
+    def test_language(self):
+        self.assertEqual(outreach.detect_lang("Beau 4 1/2 à louer avec stationnement"), "fr")
+        self.assertEqual(outreach.detect_lang("Spacious apartment for rent with parking"), "en")
+
+
+class RentalTests(unittest.TestCase):
+    FORM = {"address": "123 Rue Exemple, app. 4", "city": "Pierrefonds", "landlord_name": "Jean Proprio",
+            "tenant_names": "Marie Locataire", "lease_start": "2026-11-01", "lease_end": "2027-10-31", "rent": "1650"}
+
+    def test_window_and_followup(self):
+        opens, closes = rentals.renewal_window(date(2026, 11, 1), date(2027, 10, 31))
+        self.assertEqual((opens, closes), (date(2027, 4, 30), date(2027, 7, 31)))
+        self.assertEqual(rentals.followup_date(self.FORM, today=date(2026, 10, 15)), date(2027, 4, 30))
+        short = dict(self.FORM, lease_end="2027-04-30")  # 6-month lease: 1-2 month window
+        self.assertEqual(rentals.followup_date(short, today=date(2026, 10, 15)), date(2027, 2, 28))
+
+    def test_validate(self):
+        self.assertEqual(rentals.validate(self.FORM), [])
+        self.assertTrue(rentals.validate(dict(self.FORM, lease_end="2026-10-01")))
+        self.assertTrue(rentals.validate({}))
+
+    def test_save_email_ics_sheet(self):
+        with tempfile.TemporaryDirectory() as d:
+            conn = db.connect(Path(d) / "t.sqlite3")
+            rid = rentals.save(conn, self.FORM)
+            r = rentals.get(conn, rid)
+            mail = rentals.tanya_email(r)
+            self.assertIn("Marie Locataire", mail["body"])
+            self.assertIn(r["followup_date"], mail["body"])
+            ics = rentals.followup_ics(r)
+            self.assertIn("BEGIN:VEVENT", ics)
+            self.assertIn("DTSTART;VALUE=DATE:" + r["followup_date"].replace("-", ""), ics)
+            titles = [t for t, _rows in rentals.lease_sheet(r)]
+            self.assertTrue(titles[0].startswith("A."))
+            self.assertEqual(len(rentals.export_rows(conn)), 1)
+            conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

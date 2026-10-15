@@ -1,0 +1,30 @@
+{
+  "_comment": "Copy this file to settings.json and fill in the blanks. settings.json is git-ignored.",
+
+  "agent": {
+    "name": "Stefan Ivanov",
+    "title_fr": "courtier immobilier, spécialiste en location",
+    "title_en": "real estate broker, rental specialist",
+    "phone": "514-000-0000",
+    "email": "stefan@zaarour.ca",
+    "agency": "Zaarour & Associés",
+    "rental_page_url": "https://zaarour.ca/location"
+  },
+
+  "tanya_email": "tanya@zaarour.ca",
+  "followup_months_before_end": 6,
+
+  "message_char_limit": 1000,
+  "min_rent": 900,
+
+  "kijiji": {
+    "pages_per_search": 2,
+    "delay_seconds": 4,
+    "searches": [
+      {"name": "Saint-Laurent", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Saint-Laurent, QC", "lat": 45.5070, "lng": -73.7050, "radius_km": 6},
+      {"name": "West Island", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Pointe-Claire, QC", "lat": 45.4487, "lng": -73.8166, "radius_km": 12},
+      {"name": "Vaudreuil / Ile-Perrot", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Vaudreuil-Dorion, QC", "lat": 45.4000, "lng": -74.0330, "radius_km": 10},
+      {"name": "Laval", "slug": "laval-rive-nord", "location_id": 1700278, "address": "Laval, QC", "lat": 45.5700, "lng": -73.7500, "radius_km": 12}
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+Hi, I wrote a few days ago about your place in {city}. Is it still available? If the calls aren't coming in, we can rent it for you quickly. Reply with your email and I'll send our one-page overview. {agent_name}, {agent_phone}
+
+If you're already under contract with a broker, please disregard this message.
+To stop hearing from us, reply "no thanks".

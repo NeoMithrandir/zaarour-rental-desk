@@ -1,0 +1,4 @@
+Bonjour, je vous ai écrit il y a quelques jours au sujet de votre logement à {city}. Est-il toujours disponible ? Si les appels ne sont pas au rendez-vous, nous pouvons le louer pour vous rapidement. Répondez avec votre courriel et je vous envoie notre présentation. {agent_name}, {agent_phone}
+
+Si vous êtes déjà sous contrat avec un courtier, veuillez ignorer ce message.
+Pour ne plus recevoir de messages, répondez « non merci ».

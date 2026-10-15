@@ -1,0 +1,12 @@
+Bonjour,
+
+J'ai vu votre annonce pour votre logement à {city}. Je m'appelle {agent_name}, {agent_title_fr} chez {agency}, une équipe établie dans le secteur.
+
+Nous louons des logements comme le vôtre chaque semaine : photos professionnelles, affichage sur Centris et Realtor.ca (les sites les plus consultés par les locataires), visites, vérification du crédit et des références, et bail signé. Vous gardez le choix final du locataire.
+
+Je peux vous envoyer notre présentation d'une page par courriel. Répondez simplement avec votre adresse courriel, ou appelez-moi au {agent_phone}.
+
+{rental_page_url}
+
+Si vous êtes déjà sous contrat avec un courtier, veuillez ignorer ce message.
+Pour ne plus recevoir de messages de notre part, répondez simplement « non merci ».

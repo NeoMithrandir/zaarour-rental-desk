@@ -1,0 +1,30 @@
+<div class="toolbar">
+  <h1>This morning's landlord ads</h1>
+  <div class="tabs" id="tabs">
+    <button data-tab="review" class="on">To review <span></span></button>
+    <button data-tab="broker">Likely broker <span></span></button>
+    <button data-tab="later">Later <span></span></button>
+    <button data-tab="sent">Sent <span></span></button>
+    <button data-tab="rejected">Rejected <span></span></button>
+    <button data-tab="hidden">Hidden <span></span></button>
+  </div>
+</div>
+<p class="muted" id="hint">For each ad: <b>Approve</b> copies the message and opens the ad, paste it in the
+"Contact" box on Kijiji and send, then press <b>Mark sent</b>. Nothing is ever sent without you.
+Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>r</kbd> reject, <kbd>l</kbd> later.</p>
+<div id="list"></div>
+
+<details class="manual">
+  <summary>Add an ad by hand (Facebook Marketplace, LesPAC, DuProprio…)</summary>
+  <form id="manual" class="form">
+    <label>Where<select name="source"><option value="facebook">Facebook Marketplace</option><option value="lespac">LesPAC</option>
+      <option value="duproprio">DuProprio</option><option value="craigslist">Craigslist</option><option value="louer">Louer.ca</option><option value="other">Other</option></select></label>
+    <label>Ad link<input name="url" type="url"></label>
+    <label>Title<input name="title"></label>
+    <label>Address (with postal code if shown)<input name="address"></label>
+    <label>Rent ($)<input name="price" type="number"></label>
+    <label>Ad text (paste)<textarea name="text" rows="3"></textarea></label>
+    <button class="primary" type="submit">Check and add</button>
+  </form>
+</details>
+<script src="/ui/app.js"></script>

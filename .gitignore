@@ -1,0 +1,5 @@
+__pycache__/
+data/*
+!data/.gitkeep
+!data/README.md
+config/settings.json

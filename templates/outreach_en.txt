@@ -1,0 +1,12 @@
+Hi,
+
+I saw your ad for your place in {city}. My name is {agent_name}, {agent_title_en} with {agency}, a local team.
+
+We rent out places like yours every week: professional photos, listing on Centris and Realtor.ca (the sites tenants use most), showings, credit and reference checks, and a signed lease. You keep the final say on the tenant.
+
+I can email you our one-page overview. Just reply with your email address, or call me at {agent_phone}.
+
+{rental_page_url}
+
+If you're already under contract with a broker, please disregard this message.
+To stop hearing from us, just reply "no thanks".
