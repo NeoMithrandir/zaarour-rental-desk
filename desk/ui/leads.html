@@ -8,17 +8,20 @@
     <button data-tab="rejected">Rejected <span></span></button>
     <button data-tab="hidden">Hidden <span></span></button>
   </div>
+  <label class="phase">Show <select id="phase"><option value="">all areas</option><option value="1">phase 1 only (Saint-Laurent to West Island, Laval)</option><option value="2">phase 2 only (Montreal, South and North Shore)</option></select></label>
 </div>
 <p class="muted" id="hint">For each ad: <b>Approve</b> copies the message and opens the ad, paste it in the
-"Contact" box on Kijiji and send, then press <b>Mark sent</b>. Nothing is ever sent without you.
+board's contact box and send, then press <b>Mark sent</b>. Nothing is ever sent without you.
 Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>r</kbd> reject, <kbd>l</kbd> later.</p>
 <div id="list"></div>
 
 <details class="manual">
-  <summary>Add an ad by hand (Facebook Marketplace, LesPAC, DuProprio…)</summary>
+  <summary>Add an ad by hand (Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca…)</summary>
   <form id="manual" class="form">
     <label>Where<select name="source"><option value="facebook">Facebook Marketplace</option><option value="lespac">LesPAC</option>
-      <option value="duproprio">DuProprio</option><option value="craigslist">Craigslist</option><option value="louer">Louer.ca</option><option value="other">Other</option></select></label>
+      <option value="rentalsca">Rentals.ca</option><option value="padmapper">PadMapper / Zumper</option>
+      <option value="appartogo">Appartogo</option><option value="louer">Louer.ca</option><option value="duproprio">DuProprio</option>
+      <option value="group">Facebook group</option><option value="other">Other</option></select></label>
     <label>Ad link<input name="url" type="url"></label>
     <label>Title<input name="title"></label>
     <label>Address (with postal code if shown)<input name="address"></label>

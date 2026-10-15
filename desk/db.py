@@ -9,7 +9,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
     id TEXT PRIMARY KEY,
     source TEXT, source_id TEXT, url TEXT, title TEXT, snippet TEXT,
-    address TEXT, area TEXT, lat REAL, lng REAL, price INTEGER, bedrooms TEXT, unit_type TEXT,
+    address TEXT, area TEXT, phase INTEGER, lat REAL, lng REAL, price INTEGER, bedrooms TEXT, unit_type TEXT,
     poster_id TEXT, poster_type TEXT, posted_at TEXT, image TEXT, search TEXT,
     lang TEXT, flags TEXT, bucket TEXT,
     first_seen TEXT, status TEXT DEFAULT 'new',
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS rentals (
 );
 """
 
-LEAD_FIELDS = ["id", "source", "source_id", "url", "title", "snippet", "address", "area", "lat", "lng",
+LEAD_FIELDS = ["id", "source", "source_id", "url", "title", "snippet", "address", "area", "phase", "lat", "lng",
                "price", "bedrooms", "unit_type", "poster_id", "poster_type", "posted_at", "image",
                "search", "lang", "flags", "bucket"]
 
@@ -45,6 +45,9 @@ def connect(path=None):
     conn = sqlite3.connect(str(path or DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}
+    if "phase" not in cols:  # databases created before areas had phases
+        conn.execute("ALTER TABLE leads ADD COLUMN phase INTEGER")
     return conn
 
 

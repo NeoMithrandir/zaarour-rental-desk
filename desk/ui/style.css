@@ -58,3 +58,4 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 8p
 @media print { header, .noprint { display: none; } body { background: #fff; color: #000; } }
 .others { font-size: 13px; margin: 4px 0; } .others ul { margin: 4px 0; padding-left: 18px; }
 .warm { color: var(--ok); }
+.phase { font-size: 13px; color: var(--muted); }

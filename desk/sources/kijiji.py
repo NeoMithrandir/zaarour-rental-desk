@@ -7,15 +7,11 @@ the message himself from the review screen.
 """
 import json
 import re
-import shutil
-import subprocess
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+from .http import fetch
+
 NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 
 
@@ -27,21 +23,6 @@ def search_url(search, page=1):
         q.update({"address": search.get("address", ""), "ll": f"{search['lat']},{search['lng']}",
                   "radius": f"{float(search.get('radius_km', 10)):.1f}"})
     return "https://www.kijiji.ca" + path + "?" + urllib.parse.urlencode(q)
-
-
-def fetch(url, timeout=25):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "fr-CA,fr;q=0.9,en;q=0.8"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read().decode("utf-8", "replace")
-    except urllib.error.URLError as e:
-        # python.org installs on macOS often lack root certificates; curl uses the system keychain.
-        if "CERTIFICATE_VERIFY_FAILED" not in str(e) or not shutil.which("curl"):
-            raise
-        out = subprocess.run(["curl", "-sSfL", "--max-time", str(timeout), "-A", UA,
-                              "-H", "Accept-Language: fr-CA,fr;q=0.9,en;q=0.8", url],
-                             capture_output=True, check=True)
-        return out.stdout.decode("utf-8", "replace")
 
 
 def parse(html, search_name=""):
@@ -92,7 +73,7 @@ def collect(settings, log=print, fetcher=fetch):
     seen = {}
     first = True
     for search in cfg.get("searches", []):
-        for page in range(1, pages + 1):
+        for page in range(1, int(search.get("pages", pages)) + 1):
             if not first:
                 time.sleep(delay)
             first = False

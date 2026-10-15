@@ -10,13 +10,25 @@ UI_DIR = Path(__file__).resolve().parent / "ui"
 DB_PATH = DATA_DIR / "desk.sqlite3"
 
 
+def _merge(base, over):
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
+
+
 def load_settings():
-    """settings.json if present, else the example file (so the app runs out of the box)."""
+    """The example file's defaults, overridden by settings.json when present.
+
+    New options added to the example later still apply to an older settings.json.
+    """
+    with open(CONFIG_DIR / "settings.example.json", encoding="utf-8") as f:
+        settings = json.load(f)
     path = CONFIG_DIR / "settings.json"
-    if not path.exists():
-        path = CONFIG_DIR / "settings.example.json"
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            settings = _merge(settings, json.load(f))
+    return settings
 
 
 def load_areas():

@@ -24,7 +24,16 @@
       {"name": "Saint-Laurent", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Saint-Laurent, QC", "lat": 45.5070, "lng": -73.7050, "radius_km": 6},
       {"name": "West Island", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Pointe-Claire, QC", "lat": 45.4487, "lng": -73.8166, "radius_km": 12},
       {"name": "Vaudreuil / Ile-Perrot", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Vaudreuil-Dorion, QC", "lat": 45.4000, "lng": -74.0330, "radius_km": 10},
-      {"name": "Laval", "slug": "laval-rive-nord", "location_id": 1700278, "address": "Laval, QC", "lat": 45.5700, "lng": -73.7500, "radius_km": 12}
+      {"name": "Laval / North Shore", "slug": "laval-rive-nord", "location_id": 1700278, "pages": 3},
+      {"name": "Montreal island", "slug": "ville-de-montreal", "location_id": 1700281, "pages": 4},
+      {"name": "South Shore (Brossard, Longueuil)", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Brossard, QC", "lat": 45.4580, "lng": -73.4650, "radius_km": 14}
     ]
-  }
+  },
+
+  "_sources_comment": "Boards read automatically every morning. Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca and Facebook Marketplace block automated reading or need a login: use the 'Add an ad by hand' box for those.",
+  "sources": ["kijiji", "craigslist", "logisquebec", "livrent"],
+
+  "craigslist": {"url": "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"},
+  "logisquebec": {"regions": ["ile-de-montreal", "laval", "monteregie", "laurentides", "lanaudiere"], "pages_per_region": 3, "delay_seconds": 4},
+  "livrent": {"cities": ["montreal", "laval", "longueuil", "brossard"], "delay_seconds": 4}
 }

@@ -147,7 +147,7 @@ def stats_page(conn):
 
 
 # ---------------------------------------------------------------- API
-def api_leads(conn, settings, tab):
+def api_leads(conn, settings, tab, phase=""):
     wheres = {
         "sent": ("status='sent'", ()),
         "later": ("status='later'", ()),
@@ -155,14 +155,16 @@ def api_leads(conn, settings, tab):
     }
     bucket = tab if tab in ("broker", "hidden") else "review"
     where, args = wheres.get(tab, ("status IN ('new','approved') AND bucket=?", (bucket,)))
-    # Owners first (the classic Kijiji lead), then property managers; newest first within each.
-    order = "sent_at DESC" if tab == "sent" else "(poster_type='owner') DESC, posted_at DESC"
-    rows = conn.execute(f"SELECT * FROM leads WHERE {where} ORDER BY {order} LIMIT 500", args).fetchall()
+    # Phase 1 areas first, then owners before property managers, newest first within each.
+    if phase in ("1", "2"):
+        where, args = f"({where}) AND phase=?", tuple(args) + (int(phase),)
+    order = "sent_at DESC" if tab == "sent" else "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC"
+    rows = conn.execute(f"SELECT * FROM leads WHERE {where} ORDER BY {order} LIMIT 3000", args).fetchall()
     out, by_poster = [], {}
     for r in rows:
         d = db.lead_dict(r)
         # One message per poster: a manager with 8 ads gets one card, not 8 messages.
-        key = (d["source"], d["poster_id"]) if d.get("poster_id") and tab in ("review", "broker") else None
+        key = poster_key(d) if tab in ("review", "broker") else None
         if key and key in by_poster:
             by_poster[key]["others"].append({k: d[k] for k in ("title", "url", "address", "price")})
             continue
@@ -182,12 +184,25 @@ def api_leads(conn, settings, tab):
             "reasons": REJECT_REASONS}
 
 
+def poster_key(d):
+    """Who posted it. Boards without poster ids (Craigslist) fall back to the exact title:
+    a landlord reposting 'Beautiful 3 1/2 Cote des Neiges' 10 times is one landlord."""
+    if d.get("poster_id"):
+        return (d["source"], "p", d["poster_id"])
+    if d.get("source") in ("craigslist", "logisquebec") and d.get("title"):
+        return (d["source"], "t", d["title"].strip().lower())
+    return None
+
+
 def _group(conn, r, action, t):
     """Other ads from the same poster follow the decision on the one card shown for them."""
-    if not r["poster_id"]:
+    key = poster_key(dict(r))
+    if not key:
         return
-    same = "source=? AND poster_id=? AND id!=?"
-    args = (r["source"], r["poster_id"], r["id"])
+    if key[1] == "p":
+        same, args = "source=? AND poster_id=? AND id!=?", (r["source"], r["poster_id"], r["id"])
+    else:
+        same, args = "source=? AND lower(trim(title))=? AND id!=?", (r["source"], key[2], r["id"])
     if action in ("approve", "sent", "reject", "later"):
         conn.execute(f"UPDATE leads SET status='duplicate', decided_at=?, reject_reason=? WHERE {same} AND status IN ('new','approved')",
                      (t, f"Same poster as {r['id']}") + args)
@@ -267,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(404, "not found", "text/plain")
                 return self._send(200, f.read_bytes(), mimetypes.guess_type(str(f))[0] or "text/plain")
             if path == "/api/leads":
-                return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0]))
+                return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0]))
             if path == "/rentals/new":
                 return self._send(200, rental_form())
             if path == "/rentals":

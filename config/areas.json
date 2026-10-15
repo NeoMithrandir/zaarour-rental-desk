@@ -1,53 +1,122 @@
 {
-  "_comment": "Phase 1 target area (plan item 1.9): Ville Saint-Laurent to the West Island, Lachine, Pierrefonds, L'Ile-Bizard, Vaudreuil/Ile-Perrot, plus Laval. An ad is in the area when its postal code starts with one of these FSAs, or (when the ad has no postal code) when its city matches one of the city names. Edit freely.",
+  "_comment": "Every market from the research (rental-listing-boards-ranking.md and montreal-rental-ideas.md). Phase 1 = plan item 1.9 (Saint-Laurent to the West Island, Vaudreuil, Laval); these sort first on the review screen. Phase 2 = Montreal island, South Shore, North Shore. An ad's area comes from its postal code (3-character FSA first, then 2-character catch-alls), else its city name, else its map coordinates (nearest centre within radius_km). FSA lists are approximate: edit freely.",
   "areas": {
     "Saint-Laurent": {
+      "phase": 1, "center": [45.507, -73.705], "radius_km": 4,
       "fsa": ["H4L", "H4M", "H4N", "H4R", "H4S", "H4T"],
-      "cities": ["saint-laurent", "st-laurent", "ville saint-laurent", "ville st-laurent", "vsl"]
+      "cities": ["saint-laurent", "st-laurent", "ville saint-laurent", "ville st-laurent", "vsl", "montreal saint-laurent"]
     },
     "Lachine": {
+      "phase": 1, "center": [45.441, -73.690], "radius_km": 3,
       "fsa": ["H8R", "H8S", "H8T"],
       "cities": ["lachine"]
     },
     "Dorval": {
+      "phase": 1, "center": [45.448, -73.745], "radius_km": 3,
       "fsa": ["H9P", "H9S", "H4Y"],
       "cities": ["dorval"]
     },
     "Pointe-Claire": {
+      "phase": 1, "center": [45.449, -73.817], "radius_km": 3,
       "fsa": ["H9R"],
       "cities": ["pointe-claire", "pointe claire"]
     },
     "Dollard-des-Ormeaux": {
+      "phase": 1, "center": [45.494, -73.807], "radius_km": 3,
       "fsa": ["H9A", "H9B", "H9G"],
       "cities": ["dollard-des-ormeaux", "dollard des ormeaux", "ddo"]
     },
     "Pierrefonds-Roxboro": {
+      "phase": 1, "center": [45.493, -73.855], "radius_km": 4,
       "fsa": ["H8Y", "H8Z", "H9K"],
       "cities": ["pierrefonds", "roxboro", "pierrefonds-roxboro"]
     },
     "Kirkland": {
+      "phase": 1, "center": [45.453, -73.866], "radius_km": 3,
       "fsa": ["H9H", "H9J"],
       "cities": ["kirkland", "sainte-genevieve", "ste-genevieve"]
     },
     "Ile-Bizard": {
+      "phase": 1, "center": [45.497, -73.890], "radius_km": 4,
       "fsa": ["H9C", "H9E"],
       "cities": ["l'ile-bizard", "ile-bizard", "ile bizard", "l'ile bizard"]
     },
     "Beaconsfield": {
+      "phase": 1, "center": [45.430, -73.865], "radius_km": 3,
       "fsa": ["H9W"],
       "cities": ["beaconsfield"]
     },
     "Baie-D'Urfe / Ste-Anne / Senneville": {
+      "phase": 1, "center": [45.418, -73.930], "radius_km": 4,
       "fsa": ["H9X"],
       "cities": ["baie-d'urfe", "baie d'urfe", "sainte-anne-de-bellevue", "ste-anne-de-bellevue", "senneville"]
     },
     "Vaudreuil / Ile-Perrot": {
+      "phase": 1, "center": [45.390, -74.010], "radius_km": 9,
       "fsa": ["J7V", "J7W", "J7T"],
       "cities": ["vaudreuil", "vaudreuil-dorion", "l'ile-perrot", "ile-perrot", "notre-dame-de-l'ile-perrot", "pincourt", "terrasse-vaudreuil", "saint-lazare"]
     },
     "Laval": {
+      "phase": 1, "center": [45.580, -73.740], "radius_km": 11,
       "fsa": ["H7A", "H7B", "H7C", "H7E", "H7G", "H7H", "H7J", "H7K", "H7L", "H7M", "H7N", "H7P", "H7R", "H7S", "H7T", "H7V", "H7W", "H7X", "H7Y"],
       "cities": ["laval", "chomedey", "vimont", "auteuil", "fabreville", "duvernay", "sainte-dorothee", "ste-dorothee", "sainte-rose", "ste-rose", "laval-des-rapides", "pont-viau", "saint-francois", "laval-ouest", "laval-sur-le-lac", "saint-vincent-de-paul"]
+    },
+
+    "Downtown / Quartier latin (McGill, Concordia, UQAM)": {
+      "phase": 2, "center": [45.503, -73.570], "radius_km": 2, "note": "Many competing brokers downtown; condos can go to Paul",
+      "fsa": ["H3A", "H3B", "H3G", "H3H", "H2Z", "H2L", "H2X", "H2Y"],
+      "cities": ["ville-marie", "centre-ville", "downtown montreal", "quartier latin"]
+    },
+    "Griffintown / Saint-Henri / Sud-Ouest (ETS)": {
+      "phase": 2, "center": [45.478, -73.575], "radius_km": 3,
+      "fsa": ["H3C", "H3J", "H3K", "H4C", "H4E"],
+      "cities": ["griffintown", "saint-henri", "st-henri", "le sud-ouest", "sud-ouest", "pointe-saint-charles", "petite-bourgogne", "ville-emard"]
+    },
+    "Plateau-Mont-Royal": {
+      "phase": 2, "center": [45.523, -73.582], "radius_km": 2,
+      "fsa": ["H2H", "H2J", "H2T", "H2W"],
+      "cities": ["plateau-mont-royal", "le plateau-mont-royal", "plateau", "mile end", "mile-end"]
+    },
+    "Rosemont-La Petite-Patrie": {
+      "phase": 2, "center": [45.545, -73.585], "radius_km": 2.5,
+      "fsa": ["H1X", "H1Y", "H2G", "H2S"],
+      "cities": ["rosemont", "rosemont-la petite-patrie", "petite-patrie", "la petite-patrie"]
+    },
+    "Villeray / Parc-Extension": {
+      "phase": 2, "center": [45.545, -73.625], "radius_km": 2,
+      "fsa": ["H2E", "H2P", "H2R", "H3N"],
+      "cities": ["villeray", "parc-extension", "parc extension", "villeray-saint-michel-parc-extension"]
+    },
+    "NDG / Cote-des-Neiges (UdeM)": {
+      "phase": 2, "center": [45.483, -73.625], "radius_km": 3,
+      "fsa": ["H3S", "H3T", "H3V", "H3W", "H3X", "H4A", "H4B", "H4V"],
+      "cities": ["notre-dame-de-grace", "ndg", "cote-des-neiges", "cote-des-neiges-notre-dame-de-grace", "snowdon"]
+    },
+    "Montreal (other)": {
+      "phase": 2, "catch_all": true, "center": [45.540, -73.640], "radius_km": 16,
+      "fsa": ["H1", "H2", "H3", "H4", "H8", "H9"],
+      "cities": ["montreal", "montréal", "verdun", "outremont", "westmount", "mont-royal", "ahuntsic", "ahuntsic-cartierville", "cartierville", "saint-leonard", "anjou", "montreal-nord", "hochelaga", "hochelaga-maisonneuve", "mercier", "riviere-des-prairies", "lasalle", "cote-saint-luc", "hampstead", "montreal-ouest", "ile-des-soeurs"]
+    },
+
+    "Brossard (REM corridor)": {
+      "phase": 2, "center": [45.450, -73.465], "radius_km": 4,
+      "fsa": ["J4W", "J4X", "J4Y", "J4Z"],
+      "cities": ["brossard"]
+    },
+    "Longueuil / Saint-Lambert": {
+      "phase": 2, "center": [45.530, -73.500], "radius_km": 6,
+      "fsa": ["J4G", "J4H", "J4J", "J4K", "J4L", "J4M", "J4N", "J4P", "J4R", "J4S", "J4T", "J4V", "J3Y"],
+      "cities": ["longueuil", "saint-lambert", "st-lambert", "greenfield park", "saint-hubert", "le vieux-longueuil", "vieux-longueuil"]
+    },
+    "South Shore (other)": {
+      "phase": 2, "catch_all": true, "center": [45.400, -73.500], "radius_km": 18,
+      "fsa": ["J4B", "J5R", "J6J", "J6K", "J3E", "J3V", "J5A", "J5B", "J5C", "J4"],
+      "cities": ["boucherville", "la prairie", "candiac", "chateauguay", "sainte-julie", "saint-bruno-de-montarville", "saint-constant", "sainte-catherine", "delson", "varennes", "saint-lambert"]
+    },
+    "North Shore": {
+      "phase": 2, "center": [45.680, -73.750], "radius_km": 22,
+      "fsa": ["J5Y", "J5Z", "J6A", "J6W", "J6X", "J6Y", "J6Z", "J7A", "J7B", "J7C", "J7E", "J7G", "J7H", "J7J", "J7K", "J7M", "J7N", "J7P", "J7R", "J5N", "J5M"],
+      "cities": ["terrebonne", "mascouche", "repentigny", "blainville", "boisbriand", "sainte-therese", "ste-therese", "rosemere", "lorraine", "bois-des-filion", "mirabel", "saint-eustache", "deux-montagnes", "sainte-anne-des-plaines", "lachenaie", "charlemagne"]
     }
   }
 }

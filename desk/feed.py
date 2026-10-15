@@ -6,7 +6,9 @@ from . import db
 from .checks import Checker, bucket
 from .config import load_areas, load_settings
 from .outreach import detect_lang
-from .sources import kijiji
+from .sources import craigslist, kijiji, livrent, logisquebec
+
+SOURCES = {"kijiji": kijiji, "craigslist": craigslist, "logisquebec": logisquebec, "livrent": livrent}
 
 
 def checker_for(conn, settings=None):
@@ -24,6 +26,7 @@ def process(conn, leads, checker):
         if n >= 3 and not any(f["code"] in ("broker", "property_manager") for f in flags):
             flags.append({"code": "property_manager", "level": "info", "text": f"Same poster has {n} ads today"})
         lead["area"], lead["flags"], lead["bucket"] = area, flags, bucket(flags)
+        lead["phase"] = checker.phase.get(area)
         lead["lang"] = detect_lang(lead.get("title", "") + " " + lead.get("snippet", ""))
         new = db.upsert_lead(conn, lead)
         counts["new" if new else "already_seen"] += 1
@@ -36,8 +39,17 @@ def process(conn, leads, checker):
 def run_daily(log=print, fetcher=None):
     settings = load_settings()
     conn = db.connect()
-    log("Collecting new ads from Kijiji...")
-    leads = kijiji.collect(settings, log=log, **({"fetcher": fetcher} if fetcher else {}))
+    leads = []
+    for name in settings.get("sources", ["kijiji"]):
+        module = SOURCES.get(name)
+        if not module:
+            log(f"  ! Unknown source in settings: {name}")
+            continue
+        log(f"Collecting new ads from {name}...")
+        try:
+            leads += module.collect(settings, log=log, **({"fetcher": fetcher} if fetcher else {}))
+        except Exception as e:  # one board failing never stops the others
+            log(f"  ! {name} failed: {e}")
     counts = process(conn, leads, checker_for(conn, settings))
     log(f"Done: {counts['new']} new ads ({counts['review']} to review, {counts['broker']} likely broker, "
         f"{counts['hidden']} hidden as tenant ads or out of area); {counts['already_seen']} already seen.")

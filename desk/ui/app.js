@@ -12,7 +12,7 @@
   };
 
   async function load() {
-    const r = await fetch("/api/leads?tab=" + tab);
+    const r = await fetch("/api/leads?tab=" + tab + "&phase=" + document.getElementById("phase").value);
     data = await r.json();
     document.querySelectorAll("#tabs button").forEach((b) => {
       b.classList.toggle("on", b.dataset.tab === tab);
@@ -52,7 +52,7 @@
       <div class="body">
         <div class="top"><a href="${esc(l.url)}" target="_blank" rel="noopener" class="title">${esc(l.title)}</a>
           <span class="price">${money(l.price)}</span></div>
-        <div class="meta">${esc(l.area || "?")} · ${esc(l.address)} · ${esc(l.source)} · posted ${day(l.posted_at)}${daysUp(l.posted_at)}
+        <div class="meta">${esc(l.area || "?")}${l.phase === 2 ? " (phase 2)" : ""} · ${esc(l.address)} · ${esc(l.source)} · posted ${day(l.posted_at)}${daysUp(l.posted_at)}
           · ${l.poster_type === "owner" ? "owner" : esc(l.poster_type || "poster ?")}
           · <a href="${centrisLink(l)}" target="_blank" rel="noopener">check Centris / Realtor</a></div>
         <div class="flags">${flags}</div>
@@ -147,6 +147,7 @@
   });
 
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; cursor = 0; load(); }));
+  document.getElementById("phase").addEventListener("change", () => { cursor = 0; load(); });
 
   document.getElementById("manual").addEventListener("submit", async (e) => {
     e.preventDefault();

@@ -4,12 +4,13 @@ Stefan's daily tool for the 2027 rental plan ([plan](../docs/2027-growth-action-
 
 | Plan item | What it does here |
 |---|---|
-| 1.1 Daily lead feed | Every morning, reads the newest Kijiji Long Term Rentals ads for Saint-Laurent, the West Island, Vaudreuil/Île-Perrot and Laval. New ads only: anything already seen keeps Stefan's decision. |
-| 1.2 Sources | Kijiji is automatic. Facebook Marketplace, LesPAC, DuProprio, Craigslist and Louer.ca ads are pasted in by hand (box at the bottom of the screen) and go through the same checks. |
+| 1.1 Daily lead feed | Every morning, reads the newest rental ads from Kijiji, Craigslist (owners only), LogisQuébec and liv.rent across every market in the research: the phase 1 corridor (Saint-Laurent to the West Island, Vaudreuil/Île-Perrot) and Laval first, then Montreal island (downtown and the student areas, Griffintown/Saint-Henri, Plateau, Rosemont, Villeray, NDG/Côte-des-Neiges, the rest of the island), the South Shore (Brossard REM corridor, Longueuil) and the North Shore. New ads only: anything already seen keeps Stefan's decision. |
+| 1.2 Sources | Read automatically: Kijiji, Craigslist, LogisQuébec, liv.rent. Not readable automatically (they block automated reading or need a login): Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. Those are pasted in by hand (box at the bottom of the screen) and go through the same checks. |
 | 1.3 Auto-filtering | Drops tenant ads (lease transfers, sublets, rooms) and anything outside the target area. Flags likely brokers (broker wording, agency names, known broker phones/emails, posters Stefan rejected as brokers before). Checks the address against a Centris export once one is loaded; until then each card has a "check Centris / Realtor" link. |
 | 1.4 Send | **Approve** copies the message and opens the ad; Stefan pastes it in Kijiji's contact box and sends, then presses **Mark sent**. Nothing is sent automatically. |
 | 1.5 / 1.6 Message | French and English templates with the broker disclaimer, a character counter against the platform limit, and the disclaimer re-added if an edit drops it. |
-| 1.8 Property managers | Kept, tagged, shown after owners. All ads from one poster collapse into one card, so a manager with 8 ads gets one message. |
+| 1.8 Property managers | Kept, tagged, shown after owners. All ads from one poster collapse into one card (on Craigslist, which has no poster ids, identical titles count as one poster), so a manager with 8 ads gets one message. |
+| 1.9 Geography | Phase 1 areas sort to the top; phase 2 areas carry a "Phase 2" tag, and a filter at the top shows one phase at a time. |
 | 1.10 Second touch | The **Sent** tab has a short follow-up message ready for non-responders. |
 | E.1 Tanya form | One form per signed lease: opens the email to Tanya in your mail app, downloads a calendar event for the renewal call 6 months before the lease ends, and saves the lease end date (the data engine 3 needs). |
 | E.2 Leases | A printable lease prep sheet laid out by the sections of the mandatory TAL lease form, filled from the same form. |
@@ -42,8 +43,8 @@ Other commands: `python3 -m desk fetch` (fetch only), `python3 -m desk serve` (s
 
 ## Tuning
 
-- **Area:** `config/areas.json` (postal-code prefixes and city names per area).
-- **Kijiji searches:** `kijiji.searches` in settings (centre point and radius per search).
+- **Areas:** `config/areas.json` (phase, postal-code prefixes, city names and a map centre per area).
+- **Boards:** `sources` in settings turns each board on or off. Kijiji searches are under `kijiji.searches`, LogisQuébec regions under `logisquebec.regions`, liv.rent cities under `livrent.cities`.
 - **Known brokers:** `config/known_brokers.csv`. Rows are `keyword`, `phone`, `email` or `poster_id`.
 - **Centris check:** put a Matrix export of active rentals at `data/centris_active_rentals.csv`, then `python3 -m desk recheck`.
 - **Message:** `templates/outreach_fr.txt`, `outreach_en.txt`, `followup_*.txt`. Placeholders: `{city}`, `{agent_name}`, `{agent_phone}`, `{agency}`, `{rental_page_url}`.
@@ -52,5 +53,6 @@ Other commands: `python3 -m desk fetch` (fetch only), `python3 -m desk serve` (s
 ## Notes
 
 - Runs on one computer at `http://127.0.0.1:8765`; data is in `data/desk.sqlite3` (not committed). For Stefan to use it from his own machine, either run it there or host it (see `docs/next-steps.md`).
-- The Kijiji reader loads about 8 search pages a day, a few seconds apart, and reads only what the search page shows. It does not open ads, collect poster contact details or post anything. Kijiji can change its page at any time; if a fetch reports 0 ads, the reader needs updating.
+- The morning fetch loads about 35 search pages across the four boards, a few seconds apart (about 3 minutes), and reads only what the search pages show. It does not open ads, collect poster contact details or post anything. Any board can change its page; if a board reports 0 ads, its reader needs updating, and the other boards still run.
+- The first morning shows a backlog (about 740 cards when this was written, 220 of them in phase 1). After that, only ads that are new since the last run appear.
 - Standard library only; tests: `python3 -m unittest discover -s tests`.

@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from desk import db, feed, outreach, rentals  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
-from desk.sources import kijiji  # noqa: E402
+from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
+from desk.sources.http import money  # noqa: E402
 from desk.text import address_key, city_of, postal_fsa  # noqa: E402
 
 
@@ -43,6 +44,7 @@ FIXTURE = page_html([
     ad(5, "Apartments for rent near metro", "1225 Alexis-Nihon, Saint-Laurent, QC H4R 2A6", by="reprofessional", poster="pm"),
     ad(6, "Bachelor 1 1/2", "2109 Rue Bonin, Montréal, QC H4M 1A1", cents=80000),
     ad(7, "4½ lumineux à louer", "Boulevard Saint-Laurent, Montréal, QC H2X 2T3"),
+    ad(8, "Maison à louer", "12 Rue Principale, Gatineau, QC J8Y 1A1"),
 ])
 
 
@@ -85,20 +87,23 @@ class FeedTests(unittest.TestCase):
             got[sid] = (area, bucket(flags), {f["code"] for f in flags})
         self.assertEqual(got["1"][:2], ("Pierrefonds-Roxboro", "review"))
         self.assertIn("tenant_ad", got["2"][2])            # lease transfer: not a landlord
-        self.assertEqual(got["3"][1], "hidden")             # Terrebonne: out of area
+        self.assertEqual(got["3"][:2], ("North Shore", "review"))  # Terrebonne: phase 2 area
+        self.assertIn("phase2", got["3"][2])
         self.assertEqual(got["4"][1], "broker")             # RE/MAX wording
         self.assertEqual(got["5"][1], "review")             # property managers are kept (plan 1.8)
         self.assertIn("property_manager", got["5"][2])
         self.assertIn("small", got["6"][2])
-        self.assertEqual(got["7"][1], "hidden")             # boul. Saint-Laurent downtown is not Ville Saint-Laurent
+        self.assertEqual(got["8"][1], "hidden")             # Gatineau: outside every area
+        # boul. Saint-Laurent downtown is not Ville Saint-Laurent: the postal code wins.
+        self.assertEqual(got["7"][0], "Downtown / Quartier latin (McGill, Concordia, UQAM)")
 
     def test_process_keeps_decisions(self):
         leads = list(self.leads().values())
         c = feed.process(self.conn, leads, self.checker)
-        self.assertEqual(c["new"], 7)
+        self.assertEqual(c["new"], 8)
         self.conn.execute("UPDATE leads SET status='sent' WHERE id='kijiji:1'")
         c2 = feed.process(self.conn, list(self.leads().values()), self.checker)
-        self.assertEqual(c2["already_seen"], 7)
+        self.assertEqual(c2["already_seen"], 8)
         self.assertEqual(self.conn.execute("SELECT status FROM leads WHERE id='kijiji:1'").fetchone()[0], "sent")
 
     def test_rejected_broker_poster_is_learned(self):
@@ -106,6 +111,52 @@ class FeedTests(unittest.TestCase):
         checker = Checker(load_areas(), self.settings, db.known_posters(self.conn))
         _area, flags = checker.run(self.leads()["1"])
         self.assertEqual(bucket(flags), "broker")
+
+
+class AreaTests(unittest.TestCase):
+    def setUp(self):
+        self.c = Checker(load_areas(), load_settings())
+
+    def test_lookup_order(self):
+        self.assertEqual(self.c.area_of("Pierrefonds, QC H8Z 1V2"), "Pierrefonds-Roxboro")   # FSA
+        self.assertEqual(self.c.area_of("Rue X, Verdun, QC H4G 1J1"), "Montreal (other)")      # 2-letter catch-all
+        self.assertEqual(self.c.area_of("Duffcourt, Lachine, QC"), "Lachine")                  # city name
+        self.assertEqual(self.c.area_of("NDG, QC"), "NDG / Cote-des-Neiges (UdeM)")
+        self.assertEqual(self.c.area_of("QC", 45.4487, -73.8166), "Pointe-Claire")             # map position
+        self.assertEqual(self.c.area_of("Montreal, QC", 45.5440, -73.5960), "Rosemont-La Petite-Patrie")
+        self.assertEqual(self.c.area_of("Brossard, QC J4W 1A1"), "Brossard (REM corridor)")
+        self.assertEqual(self.c.area_of("Sherbrooke, QC J1H 1A1"), "")
+
+
+class BoardTests(unittest.TestCase):
+    CL = """<script type="application/ld+json">{"@type": "ItemList", "itemListElement": [
+      {"item": {"@type": "Apartment", "latitude": 45.47, "longitude": -73.62, "numberOfBedrooms": 2,
+                "address": {"addressLocality": "Montreal"}}}]}</script>
+      <li class="cl-static-search-result" title="5 1/2 upper duplex">
+        <a href="https://www.craigslist.org/view/d/montreal-5-1-2/abc123">
+          <div class="title">5 1/2 upper duplex</div><div class="details"><div class="price">$1 950</div>
+          <div class="location">NDG</div></div></a></li>"""
+    LOGIS = """<script type="application/ld+json">{"@type": "SearchResultsPage", "mainEntity": [{"@type": "ItemList",
+      "itemListElement": [{"item": {"url": "https://www.logisquebec.com/appartement-a-louer-lachine-l1", "geo": {"latitude": "45.44", "longitude": "-73.68"}}}]}]}</script>
+      <li><a href="/appartement-a-louer-lachine-l1" class="property-result adaptive-link">
+        <img src="https://i.logisquebec.com/x.jpg" alt=""><h2>Lachine 4 1/2</h2>
+        <p class="box-result-unit-12A">Appartement 4½ </p><span class="prix-valeur">1 195$</span>
+        <span class="adresse-rue">Duffcourt</span><br><span class="adresse-ville">Lachine (Montréal)</span>
+        <div class="box-result-unit-3A">Semi sous-sol</div></a>
+      </li>"""
+
+    def test_craigslist(self):
+        (l,) = craigslist.parse(self.CL)
+        self.assertEqual((l["id"], l["price"], l["address"], l["poster_type"]), ("craigslist:abc123", 1950, "NDG, QC", "owner"))
+        self.assertEqual(l["lat"], 45.47)
+
+    def test_logisquebec(self):
+        (l,) = logisquebec.parse(self.LOGIS)
+        self.assertEqual((l["id"], l["price"], l["address"]), ("logisquebec:1", 1195, "Duffcourt, Lachine, QC"))
+        self.assertEqual(l["lat"], "45.44")
+
+    def test_money(self):
+        self.assertEqual([money("1 195$"), money("$1,200"), money("1 200,50 $"), money("")], [1195, 1200, 1200, None])
 
 
 class OutreachTests(unittest.TestCase):

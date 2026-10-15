@@ -7,6 +7,7 @@ Each check adds flags to a lead. A flag is {"code", "level", "text"}:
   level "info"  -> just a tag (property manager, small unit)
 """
 import csv
+import math
 import re
 from pathlib import Path
 
@@ -29,6 +30,16 @@ PHONE_RE = re.compile(r"(\d{3})\D{0,3}(\d{3})\D{0,2}(\d{4})")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 
 
+GENERIC_CITIES = {"montreal", "montreal, qc", "ville de montreal", "quebec", ""}
+
+
+def _km(lat1, lng1, lat2, lng2):
+    """Distance in km (equirectangular; fine at city scale)."""
+    x = math.radians(lng2 - lng1) * math.cos(math.radians((lat1 + lat2) / 2))
+    y = math.radians(lat2 - lat1)
+    return 6371 * math.hypot(x, y)
+
+
 def _digits(phone):
     d = re.sub(r"\D", "", phone or "")
     return d[-10:]
@@ -38,13 +49,16 @@ class Checker:
     def __init__(self, areas, settings, known_posters=None):
         self.areas = areas
         self.min_rent = settings.get("min_rent", 0)
-        self.fsa_to_area = {}
-        self.city_to_area = {}
+        self.fsa_to_area, self.prefix_to_area = {}, {}
+        self.city_to_area, self.catch_all_cities = {}, {}
+        self.phase = {name: int(a.get("phase", 1)) for name, a in areas.items()}
+        self.notes = {name: a["note"] for name, a in areas.items() if a.get("note")}
         for name, a in areas.items():
             for f in a.get("fsa", []):
-                self.fsa_to_area[f.upper()] = name
+                (self.fsa_to_area if len(f) == 3 else self.prefix_to_area)[f.upper()] = name
+            cities = self.catch_all_cities if a.get("catch_all") else self.city_to_area
             for c in a.get("cities", []):
-                self.city_to_area[fold(c)] = name
+                cities[fold(c)] = name
         self.keywords, self.phones, self.emails, self.poster_ids = [], set(), set(), {}
         self._load_brokers(CONFIG_DIR / "known_brokers.csv")
         for pid, label in (known_posters or {}).items():
@@ -86,16 +100,48 @@ class Checker:
         return keys
 
     # -- the checks -------------------------------------------------------
+    def _nearest(self, lat, lng, catch_all):
+        best, best_d = "", None
+        for name, a in self.areas.items():
+            if bool(a.get("catch_all")) != catch_all or not a.get("center"):
+                continue
+            d = _km(lat, lng, *a["center"])
+            if d <= float(a.get("radius_km", 0)) and (best_d is None or d < best_d):
+                best, best_d = name, d
+        return best
+
     def area_of(self, address, lat=None, lng=None):
+        """Postal code first, then city name, then map position; catch-all areas ('Montreal (other)') last."""
         fsa = postal_fsa(address)
         if fsa:
-            return self.fsa_to_area.get(fsa, "")
+            return self.fsa_to_area.get(fsa) or self.prefix_to_area.get(fsa[:2], "")
         city = city_of(address)
         if city in self.city_to_area:
             return self.city_to_area[city]
         for c, name in self.city_to_area.items():
             if len(c) > 4 and c in city:
                 return name
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            lat = lng = None
+        # Named places inside a catch-all ('Saint-Léonard', 'Verdun') beat map positions;
+        # the bare region name ('Montréal') only applies once the map position says nothing.
+        generic = city in GENERIC_CITIES
+        if not generic:
+            if city in self.catch_all_cities:
+                return self.catch_all_cities[city]
+            for c, name in self.catch_all_cities.items():
+                if len(c) > 4 and c not in GENERIC_CITIES and c in city:
+                    return name
+        if lat is not None:
+            near = self._nearest(lat, lng, False)
+            if near:
+                return near
+        if city in self.catch_all_cities:
+            return self.catch_all_cities[city]
+        if lat is not None:
+            return self._nearest(lat, lng, True)
         return ""
 
     def run(self, lead):
@@ -108,7 +154,11 @@ class Checker:
 
         area = self.area_of(lead.get("address", ""), lead.get("lat"), lead.get("lng"))
         if not area:
-            flags.append({"code": "out_of_area", "level": "hide", "text": "Outside the target area"})
+            flags.append({"code": "out_of_area", "level": "hide", "text": "Outside every target area"})
+        elif self.phase.get(area, 1) > 1:
+            flags.append({"code": "phase2", "level": "info", "text": "Phase 2 area"})
+        if area in self.notes:
+            flags.append({"code": "area_note", "level": "info", "text": self.notes[area]})
 
         hits = [label for rx, label in self.keywords if rx.search(text)]
         phones = {"".join(m.groups()) for m in PHONE_RE.finditer(text)}
