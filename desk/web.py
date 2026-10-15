@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db, feed, leases, outreach
+from . import db, feed, lease_import, leases, outreach
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -109,30 +109,35 @@ def lease_done(r, settings):
     return page("Lease saved", body, "lease")
 
 
-STATUS_LABEL = {"due": "Call now", "upcoming": "Upcoming", "ended": "Lease ended"}
+STATUS_LABEL = {"due": "Call now", "check": "Check data", "upcoming": "Upcoming", "ended": "Lease ended"}
 
 
 def tracker_page(conn):
     rows = leases.export_rows(conn)
+    settings = load_settings()
     for r in rows:
-        r["_status"] = leases.renewal_status(r)
-    order = {"due": 0, "upcoming": 1, "ended": 2}
-    rows.sort(key=lambda r: (order[r["_status"]], r["followup_date"]))
+        r["_status"] = leases.renewal_status(r, settings=settings)
+        r["_call"] = leases.next_call(r, settings).isoformat()
+        _s, end, renewed = leases.current_term(r)
+        r["_end"] = end.isoformat() + (" (renewed)" if renewed else "")
+    order = {"due": 0, "check": 1, "upcoming": 2, "ended": 3}
+    rows.sort(key=lambda r: (order[r["_status"]], r["_call"]))
     due = sum(1 for r in rows if r["_status"] == "due")
+    check = sum(1 for r in rows if r["_status"] == "check")
     trs = "".join(
         f"<tr class='st-{r['_status']}'><td><span class='rstat {r['_status']}'>{STATUS_LABEL[r['_status']]}</span></td>"
-        f"<td>{esc(r['followup_date'])}</td><td>{esc(r['address'])}, {esc(r['city'])}</td><td>{esc(r['landlord_name'])}</td>"
-        f"<td>{esc(r['lease_end'])}</td><td><a class='btn' href='/leases/{r['id']}/renewal'>Landlord message</a> "
+        f"<td>{esc(r['_call'])}</td><td>{esc(r['address'])}, {esc(r['city'])}</td><td>{esc(r['landlord_name'])}</td>"
+        f"<td>{esc(r['_end'])}</td><td><a class='btn' href='/leases/{r['id']}/renewal'>Landlord message</a> "
         f"<a href='/leases/{r['id']}'>Details</a> · <a href='/leases/{r['id']}/lease' target='_blank'>Lease sheet</a></td></tr>"
         for r in rows)
     months = int(load_settings().get("followup_months_before_end", 6))
     body = f"""<h1>Lease renewal tracker</h1>
-<p class="lede">{len(rows)} lease{'s' if len(rows) != 1 else ''} tracked, {due} to call now. Each lease gets a renewal call
+<p class="lede">{len(rows)} lease{'s' if len(rows) != 1 else ''} tracked, {due} to call now{f", {check} imported with data to check" if check else ""}. Each lease gets a renewal call
 {months} months before it ends, when the landlord's notice window opens. <b>Landlord message</b> has the message ready
 to send. <a href="/leases.csv">Download CSV</a></p>
 <table><tr><th></th><th>Renewal call</th><th>Property</th><th>Landlord</th><th>Lease ends</th><th></th></tr>{trs}</table>
-<p class="muted">Only leases entered with <a href="/leases/new">New lease</a> are here. Past landlords from before the
-tracker existed need their lease end dates first (see docs/next-steps.md, engine 3).</p>"""
+<p class="muted">Leases come from <a href="/leases/new">New lease</a> and from imports (docs/lease-import-spec.md).
+"Check data" means an imported lease whose end date was guessed or low-confidence: confirm it before calling.</p>"""
     return page("Lease renewal tracker", body, "leases")
 
 
@@ -141,11 +146,21 @@ def renewal_page(r, settings, lang="fr"):
     mailto = "mailto:" + urllib.parse.quote(msg["to"]) + "?" + urllib.parse.urlencode(
         {"subject": msg["subject"], "body": msg["body"]}, quote_via=urllib.parse.quote)
     other = "en" if lang == "fr" else "fr"
-    opens, closes = leases.renewal_window(leases._d(r["lease_start"]), leases._d(r["lease_end"]))
+    start, end, renewed = leases.current_term(r)
+    opens, closes = leases.renewal_window(start, end)
     send = (f'<a class="btn primary" href="{esc(mailto)}">Open in my mail app</a>' if msg["to"]
             else '<span class="muted">No landlord email on file: copy the text, or call.</span>')
-    body = f"""<h1>Renewal: {esc(r['address'])}</h1>
-<p class="lede">Landlord {esc(r['landlord_name'])} {esc(r.get('landlord_phone', ''))} · lease ends {esc(r['lease_end'])} ·
+    imp = r.get("_import") or {}
+    check = ""
+    if imp:
+        ev = "".join(f"<li><b>{esc(k)}</b>: {esc(v)}</li>" for k, v in (imp.get("evidence") or {}).items())
+        verify = (f'<form method="post" action="/leases/{r["id"]}/verify"><button class="btn primary">The dates are right</button></form>'
+                  if imp.get("needs_review") else f'<span class="muted">Checked {esc(imp.get("verified_at", "")[:10])}</span>' if imp.get("verified_at") else "")
+        check = f"""<div class="banner{' ask' if imp.get('needs_review') else ''}"><p>Imported from {esc(imp.get('source'))}
+{esc(imp.get('source_ref', ''))} · confidence {imp.get('confidence')} · end date {esc(imp.get('lease_end_basis'))}.
+{'Check the lease dates against the source before sending.' if imp.get('needs_review') else ''}</p>{f'<ul>{ev}</ul>' if ev else ''}{verify}</div>"""
+    body = f"""<h1>Renewal: {esc(r['address'])}</h1>{check}
+<p class="lede">Landlord {esc(r['landlord_name'])} {esc(r.get('landlord_phone', ''))} · current term ends {end}{' (renewed by itself from ' + esc(r['lease_end']) + ')' if renewed else ''} ·
 notice window {opens} to {closes} · {STATUS_LABEL[leases.renewal_status(r)]}</p>
 <p>{send} <button class="btn" data-copy="#renewalmsg">Copy text</button>
  <a class="btn" href="/leases/{r['id']}/renewal?lang={other}">{'English' if other == 'en' else 'Français'}</a></p>
@@ -424,6 +439,15 @@ class Handler(BaseHTTPRequestHandler):
                 lid = feed.add_manual(conn, body)
                 r = conn.execute("SELECT bucket FROM leads WHERE id=?", (lid,)).fetchone()
                 return self._json({"id": lid, "bucket": r["bucket"] if r else ""})
+            if path == "/api/leases/import":
+                records = body.get("records", []) if isinstance(body, dict) else body
+                report = lease_import.import_records(conn, records)
+                return self._json({k: v for k, v in report.items()})
+            if path.startswith("/leases/") and path.endswith("/verify"):
+                rid = path.split("/")[2]
+                if rid.isdigit() and lease_import.mark_verified(conn, int(rid)):
+                    return self._send(303, "", headers={"Location": f"/leases/{rid}/renewal"})
+                return self._json({"error": "not found"}, 404)
             if path == "/api/recheck":
                 return self._json(dict(feed.recheck_all(conn)))
             if path in ("/leases/new", "/rentals/new"):

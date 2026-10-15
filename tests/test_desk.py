@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import db, feed, leases, outreach  # noqa: E402
+from desk import db, feed, lease_import, leases, outreach  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
@@ -211,7 +211,12 @@ class RentalTests(unittest.TestCase):
             self.assertIn("Jean", leases.renewal_message(r, lang="en")["body"])
             self.assertEqual(leases.renewal_status(r, today=date(2026, 10, 15)), "upcoming")
             self.assertEqual(leases.renewal_status(r, today=date(2027, 4, 20)), "due")
-            self.assertEqual(leases.renewal_status(r, today=date(2027, 11, 1)), "ended")
+            # Past the end date the lease renews itself for the same length (art. 1941)...
+            self.assertEqual(leases.current_term(r, date(2027, 11, 1))[1:], (date(2028, 10, 31), True))
+            self.assertEqual(leases.next_call(r, today=date(2027, 11, 1)), date(2028, 4, 30))
+            self.assertEqual(leases.renewal_status(r, today=date(2027, 11, 1)), "upcoming")
+            # ...unless the tenancy is marked ended.
+            self.assertEqual(leases.renewal_status(dict(r, tenancy_status="ended"), today=date(2027, 11, 1)), "ended")
             conn.close()
 
 
@@ -268,6 +273,51 @@ class ReviewScreenTests(unittest.TestCase):
         for tab in ("review", "broker", "hidden"):
             res = self.web.api_leads(self.conn, self.settings, tab)
             self.assertEqual(res["counts"].get(tab, 0), len(res["leads"]), tab)
+
+
+SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "examples" / "leases-sample.jsonl"
+
+
+class LeaseImportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_sample_file_imports(self):
+        rep = lease_import.import_records(self.conn, lease_import.read_file(SAMPLE))
+        self.assertEqual((rep["added"], len(rep["rejected"]), rep["needs_review"]), (2, 0, 1))
+        got = {json_row["_import"]["external_id"]: json_row for json_row in leases.export_rows(self.conn)}
+        a = got["nexone:TR-2025-0412"]
+        self.assertEqual((a["rent"], a["heating"], a["furnished"], a["tenancy_status"]), ("1850", "Landlord", "", "unknown"))
+        b = got["sales_tracker:2024:row-88"]
+        self.assertEqual(b["rent"], "1495")                       # '1 495,00 $' normalised
+        self.assertEqual(leases.renewal_status(b, today=date(2026, 10, 15)), "check")  # confidence 0.6
+        # Same file again: updates in place, no duplicates.
+        rep2 = lease_import.import_records(self.conn, lease_import.read_file(SAMPLE))
+        self.assertEqual((rep2["added"], rep2["updated"]), (0, 2))
+        # A person confirms the dates: later imports leave it alone.
+        self.assertTrue(lease_import.mark_verified(self.conn, b["id"]))
+        rep3 = lease_import.import_records(self.conn, lease_import.read_file(SAMPLE))
+        self.assertEqual((rep3["updated"], len(rep3["skipped"])), (1, 1))
+
+    def test_rejects_and_hand_entered_duplicates(self):
+        bad = [{"external_id": "x1", "source": "nexone", "address": "1 Rue A", "city": "Laval", "landlord_name": "A",
+                "lease_start": "2026/07/01", "lease_end": "2027-06-30"},
+               {"external_id": "x2", "source": "fax", "address": "1 Rue A", "city": "Laval", "landlord_name": "A",
+                "lease_start": "2026-07-01", "lease_end": "2026-06-30"},
+               {"source": "nexone"}]
+        rep = lease_import.import_records(self.conn, bad)
+        self.assertEqual(len(rep["rejected"]), 3)
+        self.assertTrue(any("YYYY-MM-DD" in e for e in rep["rejected"][0]["errors"]))
+        leases.save(self.conn, {"address": "1 Rue A", "city": "Laval", "landlord_name": "A", "tenant_names": "B",
+                                "lease_start": "2026-07-01", "lease_end": "2027-06-30", "rent": "1500"})
+        dup = dict(bad[0], lease_start="2026-07-01")
+        rep = lease_import.import_records(self.conn, [dup])
+        self.assertEqual((rep["added"], len(rep["skipped"])), (0, 1))
 
 
 if __name__ == "__main__":

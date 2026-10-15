@@ -253,13 +253,38 @@ def export_rows(conn):
 DUE_SOON_DAYS = 14
 
 
-def renewal_status(r, today=None):
-    """'due' when the renewal call is today, overdue or within two weeks; 'upcoming' before that;
-    'ended' once the lease end has passed."""
+def current_term(r, today=None):
+    """The lease term running today. A Québec lease renews itself for the same length unless someone
+    ends it (Civil Code art. 1941), so a past end date rolls forward unless the tenancy is marked ended.
+    Returns (start, end, renewed)."""
     today = today or date.today()
-    if _d(r["lease_end"]) < today:
+    start, end = _d(r["lease_start"]), _d(r["lease_end"])
+    if end >= today or r.get("tenancy_status") == "ended":
+        return start, end, False
+    months = max(lease_months(start, end), 1)
+    while end < today:
+        start = end + timedelta(days=1)
+        end = _add_months(start, months) - timedelta(days=1)
+    return start, end, True
+
+
+def next_call(r, settings=None, today=None):
+    """Renewal call date for the current term (the saved date until the lease renews itself)."""
+    start, end, renewed = current_term(r, today)
+    if not renewed:
+        return _d(r["followup_date"])
+    return followup_date({"lease_start": start.isoformat(), "lease_end": end.isoformat()}, settings, today)
+
+
+def renewal_status(r, today=None, settings=None):
+    """'ended' when the tenancy is marked ended and its end date passed; 'check' for imported data a person
+    hasn't confirmed yet; 'due' when the renewal call is overdue or within two weeks; 'upcoming' before that."""
+    today = today or date.today()
+    if r.get("tenancy_status") == "ended" and _d(r["lease_end"]) < today:
         return "ended"
-    if _d(r["followup_date"]) <= today + timedelta(days=DUE_SOON_DAYS):
+    if (r.get("_import") or {}).get("needs_review"):
+        return "check"
+    if next_call(r, settings, today) <= today + timedelta(days=DUE_SOON_DAYS):
         return "due"
     return "upcoming"
 
@@ -268,14 +293,15 @@ def renewal_message(r, settings=None, lang="fr"):
     """The message Stefan sends the landlord at the renewal call date (FR or EN)."""
     settings = settings or load_settings()
     agent = settings.get("agent", {})
-    opens, closes = renewal_window(_d(r["lease_start"]), _d(r["lease_end"]))
+    start, end, _renewed = current_term(r)
+    opens, closes = renewal_window(start, end)
     with open(TEMPLATE_DIR / f"renewal_landlord_{lang}.txt", encoding="utf-8") as f:
         body = f.read().strip()
     first = (r.get("landlord_name") or "").split(" ")[0].strip(",") if lang == "en" else (r.get("landlord_name") or "")
     body = body.format_map({
         "landlord_name": first or ("Madame, Monsieur" if lang == "fr" else "there"),
         "address": r["address"] + (f", {r['city']}" if r.get("city") else ""),
-        "lease_end": r["lease_end"], "window_opens": opens.isoformat(), "window_closes": closes.isoformat(),
+        "lease_end": end.isoformat(), "window_opens": opens.isoformat(), "window_closes": closes.isoformat(),
         "agent_name": agent.get("name", ""), "agent_phone": agent.get("phone", ""),
     })
     subject = (f"Renouvellement du bail : {r['address']}" if lang == "fr" else f"Lease renewal: {r['address']}")

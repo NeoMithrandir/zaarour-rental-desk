@@ -269,3 +269,4 @@ th { font-weight: 600; color: var(--muted); background: var(--panel); }
 .rstat.upcoming { color: var(--ok); background: var(--ok-soft); }
 .rstat.ended { color: var(--muted); background: var(--line); }
 tr.st-ended td { color: var(--muted); }
+.rstat.check { color: var(--accent); background: var(--accent-soft); }

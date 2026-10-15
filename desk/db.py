@@ -48,6 +48,11 @@ def connect(path=None):
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}
     if "phase" not in cols:  # databases created before areas had phases
         conn.execute("ALTER TABLE leads ADD COLUMN phase INTEGER")
+    rcols = {r["name"] for r in conn.execute("PRAGMA table_info(rentals)")}
+    for col in ("external_id", "origin"):  # leases imported from outside the desk (lease_import.py)
+        if col not in rcols:
+            conn.execute(f"ALTER TABLE rentals ADD COLUMN {col} TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS rentals_external_id ON rentals(external_id) WHERE external_id IS NOT NULL")
     return conn
 
 

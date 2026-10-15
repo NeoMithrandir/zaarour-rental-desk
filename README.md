@@ -41,6 +41,7 @@ python3 -m desk morning
 Other commands: `python3 -m desk fetch` (fetch only), `python3 -m desk serve` (screen only),
 `python3 -m desk recheck` (re-run checks after editing brokers or loading a Centris export),
 `python3 -m desk export-leases` (the renewal tracker to CSV).
+`python3 -m desk import-leases [--dry-run] [file]` loads leases from outside the desk (default: everything in `data/import/inbox/`, which the morning run also picks up). The data shape is in [docs/lease-import-spec.md](../docs/lease-import-spec.md).
 
 ## Tuning
 
