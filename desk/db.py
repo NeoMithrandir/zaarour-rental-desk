@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS known_posters (
     source TEXT, poster_id TEXT, label TEXT, added_at TEXT,
     PRIMARY KEY (source, poster_id)
 );
+CREATE TABLE IF NOT EXISTS scan_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT, started_at TEXT, finished_at TEXT, ok INTEGER,
+    ads INTEGER, new INTEGER, requests INTEGER, not_modified INTEGER, error TEXT
+);
+CREATE INDEX IF NOT EXISTS scan_runs_source ON scan_runs(source, finished_at);
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id TEXT, at TEXT, action TEXT, reason TEXT, template TEXT, edited INTEGER, signals TEXT
+);
+CREATE INDEX IF NOT EXISTS events_lead ON events(lead_id, at);
 CREATE TABLE IF NOT EXISTS rentals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT,
@@ -42,7 +53,8 @@ def now():
 
 def connect(path=None):
     DATA_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(str(path or DB_PATH))
+    # The review screen and a background scan share the file: wait for each other instead of failing.
+    conn = sqlite3.connect(str(path or DB_PATH), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}
@@ -53,15 +65,22 @@ def connect(path=None):
         if col not in rcols:
             conn.execute(f"ALTER TABLE rentals ADD COLUMN {col} TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS rentals_external_id ON rentals(external_id) WHERE external_id IS NOT NULL")
+    if "template" not in cols:  # which message template an approved lead got (for the learnings)
+        conn.execute("ALTER TABLE leads ADD COLUMN template TEXT")
     return conn
 
 
-def upsert_lead(conn, lead):
-    """Insert a new lead; return True if it was new. Existing leads keep Stefan's decision."""
+def upsert_lead(conn, lead, refresh=True):
+    """Insert a new lead; return True if it was new. Existing leads keep Stefan's decision.
+
+    refresh=False leaves an existing lead untouched: a captured or alert copy of an ad the desk already
+    read carries less detail than the scanned one."""
     row = {k: lead.get(k) for k in LEAD_FIELDS}
     row["flags"] = json.dumps(lead.get("flags", []), ensure_ascii=False)
     cur = conn.execute("SELECT id FROM leads WHERE id=?", (row["id"],))
     if cur.fetchone():
+        if not refresh:
+            return False
         # Refresh the facts (price drops, edits) but never the decision.
         sets = ", ".join(f"{k}=?" for k in LEAD_FIELDS if k != "id")
         conn.execute(f"UPDATE leads SET {sets} WHERE id=?", [row[k] for k in LEAD_FIELDS if k != "id"] + [row["id"]])
@@ -91,3 +110,17 @@ def unmark_poster(conn, source, poster_id, label):
     """Forget a learned poster, but only the entry a given action created (undo of a Broker reject)."""
     if poster_id:
         conn.execute("DELETE FROM known_posters WHERE source=? AND poster_id=? AND label=?", (source, poster_id, label))
+
+
+def log_event(conn, lead, action, reason=None, template=None, edited=None):
+    """Append one decision or outcome to the learning log, with the listing's signals as they were then."""
+    d = dict(lead)
+    signals = {k: d.get(k) for k in ("source", "area", "phase", "price", "bedrooms", "unit_type", "poster_type",
+                                       "lang", "posted_at", "bucket", "first_seen")}
+    flags = d.get("flags")
+    if isinstance(flags, str):
+        flags = json.loads(flags or "[]")
+    signals["flags"] = sorted({f["code"] for f in flags or []})
+    conn.execute("INSERT INTO events (lead_id, at, action, reason, template, edited, signals) VALUES (?,?,?,?,?,?,?)",
+                 (d.get("id"), now(), action, reason, template, None if edited is None else int(bool(edited)),
+                  json.dumps(signals, ensure_ascii=False)))

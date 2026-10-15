@@ -45,7 +45,7 @@ def parse(html):
     return leads
 
 
-def collect(settings, log=print, fetcher=fetch):
+def collect(settings, log=print, fetcher=fetch, known=None):
     leads = parse(fetcher(settings.get("craigslist", {}).get("url", URL)))
     log(f"  Craigslist owners: {len(leads)} ads")
     return leads

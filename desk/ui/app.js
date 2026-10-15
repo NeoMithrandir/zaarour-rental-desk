@@ -564,6 +564,43 @@
     if (k === "f") { const el = $(".composer", stage); return setLang(l, msgFor(l).lang === "fr" ? "en" : "fr", el); }
   });
 
+  // ------------------------------------------------------------ background reading of the boards
+  // The desk opens on what it already has; stale boards are read behind it. New ads join the counts
+  // without moving the ad Stefan is looking at.
+  const NAMES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", alerts: "alert emails" };
+  const ago = (s) => { const m = Math.round((Date.now() - Date.parse(s)) / 60000); return isNaN(m) ? "" : m < 2 ? "just now" : m < 90 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+  let scanWasRunning = false, scanTimer = null;
+  async function pollScan() {
+    clearTimeout(scanTimer);
+    let s;
+    try { s = await (await fetch("/api/scan")).json(); } catch (e) { return; }
+    const bar = $("#scanbar");
+    if (s.running) {
+      const line = (s.lines || []).filter((l) => !l.startsWith("!")).slice(-1)[0] || "Starting";
+      bar.textContent = `Checking the boards for new ads in the background. ${line.replace(/^\s+/, "")}`;
+      bar.hidden = false;
+      scanWasRunning = true;
+      scanTimer = setTimeout(pollScan, 3000);
+      return;
+    }
+    const read = (s.boards || []).filter((b) => b.last_ok).map((b) => `${NAMES[b.source] || b.source} ${ago(b.last_ok)}`);
+    const failed = (s.boards || []).filter((b) => b.last_error).map((b) => NAMES[b.source] || b.source);
+    bar.textContent = (read.length ? `Boards last read: ${read.join(", ")}.` : "") + (failed.length ? ` Couldn't read ${failed.join(", ")} last time.` : "");
+    bar.hidden = !bar.textContent;
+    if (scanWasRunning) {
+      scanWasRunning = false;
+      const n = (s.last && s.last.review) || 0;
+      if (data) { data.leads.length ? refreshCounts() : load(); }
+      if (n) toast(`${n} new ad${n > 1 ? "s" : ""} to review.`, false, data && data.leads.length ? ["Show them", () => load()] : null);
+    }
+  }
+  $("#scanbtn").addEventListener("click", async () => {
+    const r = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+    if (!r.started && !r.running) toast("Every board was read recently. Nothing to do.");
+    pollScan();
+  });
+  pollScan();
+
   const start = location.hash.slice(1);
   if ($(`#tabs button[data-tab="${start}"]`)) tab = start;
   load();

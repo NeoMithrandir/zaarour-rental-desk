@@ -5,6 +5,8 @@
       <p class="sub">You approve, the desk copies the message and opens the ad, you send it. Nothing is ever sent without you.</p>
     </div>
     <div class="deskbar-tools">
+      <button id="scanbtn" class="ghost" type="button" title="Read boards whose last read is out of date">Check boards</button>
+      <a class="btn ghost" href="/capture/install" title="A bookmark that sends the ad you're looking at to the desk">Capture button</a>
       <button id="addbtn" class="ghost" type="button" aria-expanded="false">+ Add an ad by hand</button>
       <button id="helpbtn" class="ghost icon" type="button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
     </div>
@@ -35,6 +37,7 @@
       </div>
     </div>
   </div>
+  <p class="scanbar muted" id="scanbar" role="status" aria-live="polite" hidden></p>
   <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
 </div>
 
@@ -42,7 +45,7 @@
 
 <form id="manual" class="card manual" hidden>
   <div class="manual-head"><h2>Add an ad by hand</h2>
-    <p class="muted">For boards the desk can't read: Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. It goes through the same checks.</p></div>
+    <p class="muted">For boards the desk doesn't read by itself: Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. The <a href="/capture/install">capture button</a> fills this in for you from the ad you're looking at. It goes through the same checks.</p></div>
   <div class="grid">
     <label class="field"><span class="lbl">Where</span><select name="source"><option value="facebook">Facebook Marketplace</option><option value="group">Facebook group</option>
       <option value="lespac">LesPAC</option><option value="rentalsca">Rentals.ca</option><option value="padmapper">PadMapper / Zumper</option>

@@ -153,7 +153,10 @@ class Checker:
             flags.append({"code": "tenant_ad", "level": "hide", "text": "Tenant ad (lease transfer, sublet or room)"})
 
         area = self.area_of(lead.get("address", ""), lead.get("lat"), lead.get("lng"))
-        if not area:
+        if not area and not (lead.get("address") or "").strip() and lead.get("lat") is None:
+            # Captured or alert ads often carry no address: Stefan decides, rather than hiding them.
+            flags.append({"code": "area_unknown", "level": "check", "text": "No address in the ad: check the area"})
+        elif not area:
             flags.append({"code": "out_of_area", "level": "hide", "text": "Outside every target area"})
         elif self.phase.get(area, 1) > 1:
             flags.append({"code": "phase2", "level": "info", "text": "Phase 2 area"})

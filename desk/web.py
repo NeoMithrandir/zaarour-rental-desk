@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db, feed, lease_import, leases, outreach, tal
+from . import capture, db, feed, learn, lease_import, leases, outreach, scan, tal
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -335,17 +335,40 @@ def _group(conn, r, action, t):
                      args + (f"Same poster as {r['id']}",))
 
 
-def api_decide(conn, lead_id, body):
+def template_used(lead, settings, message):
+    """Which template an outgoing message came from, and whether Stefan edited it.
+
+    The id carries a short hash of the template text, so a reworded template counts as a new variant
+    in the learnings."""
+    for lang in ([lead.get("lang")] if lead.get("lang") else []) + ["fr", "en"]:
+        if (message or "").strip() == outreach.render(lead, settings, lang).strip():
+            return outreach.template_id("outreach", lang), False
+    lang = outreach.detect_lang(message or "") if message else (lead.get("lang") or "fr")
+    return outreach.template_id("outreach", lang), bool(message)
+
+
+LOGGED = {"approve", "sent", "reject", "later", "undo", "unsend", "replied", "presentation", "listing", "no_reply", "set_outcome"}
+
+
+def api_decide(conn, lead_id, body, settings=None):
     action = body.get("action")
     r = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
     if not r:
         return {"error": "not found"}, 404
     t = db.now()
     _group(conn, r, action, t)
+    template = edited = None
+    if action in ("approve", "sent") and (body.get("message") or action == "approve"):
+        template, edited = template_used(db.lead_dict(r), settings or load_settings(), body.get("message", ""))
+    if action in LOGGED:  # the learning log: every decision and outcome, with the ad's signals
+        db.log_event(conn, db.lead_dict(r), action, body.get("reason") or body.get("outcome"),
+                     template or r["template"], edited)
     if action == "approve":
-        conn.execute("UPDATE leads SET status='approved', decided_at=?, message=? WHERE id=?", (t, body.get("message", ""), lead_id))
+        conn.execute("UPDATE leads SET status='approved', decided_at=?, message=?, template=? WHERE id=?",
+                     (t, body.get("message", ""), template, lead_id))
     elif action == "sent":
-        conn.execute("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message) WHERE id=?", (t, body.get("message"), lead_id))
+        conn.execute("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message), template=COALESCE(?, template) WHERE id=?",
+                     (t, body.get("message"), template, lead_id))
     elif action == "reject":
         reason = body.get("reason", "Other")
         conn.execute("UPDATE leads SET status='rejected', decided_at=?, reject_reason=? WHERE id=?", (t, reason, lead_id))
@@ -417,6 +440,12 @@ class Handler(BaseHTTPRequestHandler):
                 if f.resolve().parent != UI_DIR.resolve() or not f.exists():
                     return self._send(404, "not found", "text/plain")
                 return self._send(200, f.read_bytes(), mimetypes.guess_type(str(f))[0] or "text/plain")
+            if path == "/api/scan":
+                return self._json({**SCANNER.status, "boards": scan.board_status(conn, settings)})
+            if path == "/capture":
+                return self._send(200, capture.capture_page(page))
+            if path == "/capture/install":
+                return self._send(200, capture.install_page(page))
             if path == "/api/counts":
                 return self._json({"counts": lead_counts(conn), "today": today_counts(conn)})
             if path == "/api/leads":
@@ -467,7 +496,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._form()
             if path.startswith("/api/lead/") and path.endswith("/decide"):
                 lead_id = urllib.parse.unquote(path[len("/api/lead/"):-len("/decide")])
-                res, code = api_decide(conn, lead_id, body)
+                res, code = api_decide(conn, lead_id, body, load_settings())
                 return self._json(res, code)
             if path == "/api/decide-many":
                 done = [api_decide(conn, i, body)[1] == 200 for i in body.get("ids", [])]
@@ -491,6 +520,9 @@ class Handler(BaseHTTPRequestHandler):
                 if rid.isdigit() and lease_import.mark_verified(conn, int(rid)):
                     return self._send(303, "", headers={"Location": f"/leases/{rid}/renewal"})
                 return self._json({"error": "not found"}, 404)
+            if path == "/api/scan":
+                started = SCANNER.start(force=bool(body.get("force")), after=after_scan)
+                return self._json({"started": started, **SCANNER.status})
             if path == "/api/recheck":
                 return self._json(dict(feed.recheck_all(conn)))
             if path in ("/leases/new", "/rentals/new"):
@@ -504,10 +536,25 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
 
-def serve(port=8765, open_browser=True):
+def after_scan(conn, settings):
+    """After each background read: refresh the learnings if they are a day old."""
+    learn.maybe_write(conn, settings)
+
+
+SCANNER = scan.Scanner(load_settings)
+
+
+def serve(port=8765, open_browser=True, scan_on_start=False):
+    """Open the review screen at once on what the desk already has. With scan_on_start, boards whose last
+    read is stale are read in the background while Stefan works; the screen shows progress and new ads."""
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}/"
     print(f"Rentals desk running at {url}  (Ctrl+C to stop)")
+    settings = load_settings()
+    if scan_on_start:
+        if not SCANNER.start(after=after_scan):
+            print("Every board was read recently: showing what the desk already has.")
+    SCANNER.loop(int(settings.get("scan", {}).get("auto_refresh_minutes", 60)) if scan_on_start else 0)
     if open_browser:
         import webbrowser
         webbrowser.open(url)

@@ -1,0 +1,19 @@
+<h1>Send to desk</h1>
+<p class="lede" id="capintro">Check the ad, fix anything the page didn't show, then add it. It goes through the same checks as every other ad.</p>
+<form id="capture" class="card manual">
+  <div class="grid">
+    <label class="field"><span class="lbl">Where</span><select name="source"><option value="facebook">Facebook Marketplace</option><option value="group">Facebook group</option>
+      <option value="kijiji">Kijiji</option><option value="craigslist">Craigslist</option><option value="lespac">LesPAC</option><option value="rentalsca">Rentals.ca</option>
+      <option value="padmapper">PadMapper / Zumper</option><option value="appartogo">Appartogo</option><option value="louer">Louer.ca</option>
+      <option value="logisquebec">LogisQuébec</option><option value="livrent">liv.rent</option><option value="duproprio">DuProprio</option>
+      <option value="other">Other</option></select></label>
+    <label class="field"><span class="lbl">Ad link</span><input name="url" type="url"></label>
+    <label class="field wide"><span class="lbl">Title</span><input name="title"></label>
+    <label class="field"><span class="lbl">Rent</span><span class="money"><input name="price" type="number" inputmode="numeric"></span></label>
+    <label class="field wide"><span class="lbl">Address (with postal code if shown)</span><input name="address"></label>
+    <label class="field wide"><span class="lbl">Ad text</span><textarea name="text" rows="6"></textarea></label>
+  </div>
+  <input type="hidden" name="via" value="capture">
+  <div class="actions-row"><button type="button" class="ghost" onclick="window.close()">Cancel</button><button class="primary" type="submit">Add to desk</button></div>
+</form>
+<p id="capdone" class="banner" hidden></p>

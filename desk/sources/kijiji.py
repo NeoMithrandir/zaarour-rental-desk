@@ -7,22 +7,19 @@ the message himself from the review screen.
 """
 import json
 import re
-import time
-import urllib.parse
 
-from .http import fetch
+from .http import HostCooling, NotModified, fetch
 
 NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 
 
 def search_url(search, page=1):
+    """A location's search page. Kijiji already lists organic ads newest first, and its robots.txt asks
+    robots not to use the sort, address, ll or radius parameters, so the desk doesn't: it reads whole
+    locations and lets the area check sort the ads into areas."""
     slug, loc = search["slug"], search["location_id"]
     path = f"/b-apartments-condos/{slug}/c37l{loc}" if page == 1 else f"/b-apartments-condos/{slug}/page-{page}/c37l{loc}"
-    q = {"sort": "dateDesc"}
-    if search.get("lat") is not None:
-        q.update({"address": search.get("address", ""), "ll": f"{search['lat']},{search['lng']}",
-                  "radius": f"{float(search.get('radius_km', 10)):.1f}"})
-    return "https://www.kijiji.ca" + path + "?" + urllib.parse.urlencode(q)
+    return "https://www.kijiji.ca" + path
 
 
 def parse(html, search_name=""):
@@ -65,28 +62,37 @@ def parse(html, search_name=""):
     return leads
 
 
-def collect(settings, log=print, fetcher=fetch):
-    """Run every configured search; return de-duplicated leads (newest version of each ad)."""
+def collect(settings, log=print, fetcher=fetch, known=None):
+    """Run every configured search; return de-duplicated leads (newest version of each ad).
+
+    Pages are read newest first until a page holds no ad the desk hasn't seen (caught up), the page is
+    unchanged since last time, or the search's page cap is reached. `known(id)` says whether an ad is
+    already in the desk."""
     cfg = settings.get("kijiji", {})
-    pages = int(cfg.get("pages_per_search", 2))
-    delay = float(cfg.get("delay_seconds", 4))
+    pages = int(cfg.get("max_pages_per_search", cfg.get("pages_per_search", 2)))
+    known = known or (lambda _id: False)
     seen = {}
-    first = True
     for search in cfg.get("searches", []):
         for page in range(1, int(search.get("pages", pages)) + 1):
-            if not first:
-                time.sleep(delay)
-            first = False
             url = search_url(search, page)
             try:
                 found = parse(fetcher(url), search.get("name", ""))
-            except Exception as e:  # network hiccup or page change: report, keep going
+            except NotModified:
+                log(f"  Kijiji {search.get('name')}: no change since last check")
+                break
+            except HostCooling as e:
+                if not seen:  # nothing read at all: the board failed this time
+                    raise
+                log(f"  ! Kijiji: {e}")
+                return list(seen.values())
+            except Exception as e:  # network hiccup, robots.txt refusal or page change: report, keep going
                 log(f"  ! Kijiji {search.get('name')} page {page}: {e}")
-                continue
+                break
             organic = [l for l in found if not l["is_top_ad"]]
-            log(f"  Kijiji {search.get('name')} page {page}: {len(found)} ads")
+            fresh = [l for l in organic if not known(l["id"]) and l["id"] not in seen]
+            log(f"  Kijiji {search.get('name')} page {page}: {len(found)} ads, {len(fresh)} new")
             for lead in found:
                 seen.setdefault(lead["id"], lead)
-            if not organic:
+            if not organic or not fresh:
                 break
     return list(seen.values())

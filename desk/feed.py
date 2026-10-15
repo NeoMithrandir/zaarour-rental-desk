@@ -2,13 +2,14 @@
 import hashlib
 from collections import Counter
 
-from . import db
+from . import alerts, capture, db
 from .checks import Checker, bucket
 from .config import load_areas, load_settings
 from .outreach import detect_lang
 from .sources import craigslist, kijiji, livrent, logisquebec
 
-SOURCES = {"kijiji": kijiji, "craigslist": craigslist, "logisquebec": logisquebec, "livrent": livrent}
+SOURCES = {"kijiji": kijiji, "craigslist": craigslist, "logisquebec": logisquebec, "livrent": livrent,
+           "alerts": alerts}
 
 
 def checker_for(conn, settings=None):
@@ -28,7 +29,7 @@ def process(conn, leads, checker):
         lead["area"], lead["flags"], lead["bucket"] = area, flags, bucket(flags)
         lead["phase"] = checker.phase.get(area)
         lead["lang"] = detect_lang(lead.get("title", "") + " " + lead.get("snippet", ""))
-        new = db.upsert_lead(conn, lead)
+        new = db.upsert_lead(conn, lead, refresh=not lead.get("partial"))
         counts["new" if new else "already_seen"] += 1
         if new:
             counts[lead["bucket"]] += 1
@@ -36,21 +37,12 @@ def process(conn, leads, checker):
     return counts
 
 
-def run_daily(log=print, fetcher=None):
+def run_daily(log=print, fetcher=None, force=False):
+    """Read the boards whose last read is stale (all of them with force) and print a summary."""
+    from . import scan
     settings = load_settings()
     conn = db.connect()
-    leads = []
-    for name in settings.get("sources", ["kijiji"]):
-        module = SOURCES.get(name)
-        if not module:
-            log(f"  ! Unknown source in settings: {name}")
-            continue
-        log(f"Collecting new ads from {name}...")
-        try:
-            leads += module.collect(settings, log=log, **({"fetcher": fetcher} if fetcher else {}))
-        except Exception as e:  # one board failing never stops the others
-            log(f"  ! {name} failed: {e}")
-    counts = process(conn, leads, checker_for(conn, settings))
+    counts = scan.run(conn, settings, force=force, log=log, fetcher=fetcher)
     log(f"Done: {counts['new']} new ads ({counts['review']} to review, {counts['broker']} likely broker, "
         f"{counts['hidden']} hidden as tenant ads or out of area); {counts['already_seen']} already seen.")
     return counts
@@ -64,11 +56,14 @@ def recheck_all(conn):
 
 
 def add_manual(conn, form):
-    """A lead Stefan pastes in by hand, e.g. from Facebook Marketplace (no automated reading there)."""
+    """A lead Stefan pastes in by hand or sends with the capture button while browsing a board himself
+    (Facebook Marketplace and the other boards the desk does not read)."""
     url = (form.get("url") or "").strip()
+    source = form.get("source") or capture.source_of(url) or "facebook"
     lead = {
-        "id": "manual:" + hashlib.sha1((url or form.get("title", "") + form.get("address", "")).encode()).hexdigest()[:12],
-        "source": form.get("source") or "facebook",
+        "id": capture.canonical_id(url, source) if url else
+              "manual:" + hashlib.sha1((form.get("title", "") + form.get("address", "")).encode()).hexdigest()[:12],
+        "source": source,
         "source_id": "",
         "url": url,
         "title": (form.get("title") or "").strip(),
@@ -77,8 +72,9 @@ def add_manual(conn, form):
         "price": int(form["price"]) if str(form.get("price") or "").strip().isdigit() else None,
         "poster_id": (form.get("poster") or "").strip(),
         "poster_type": "",
-        "posted_at": db.now(),
-        "search": "manual",
+        "posted_at": (form.get("posted_at") or "").strip() or db.now(),
+        "search": form.get("via") or "manual",
+        "partial": True,
     }
     process(conn, [lead], checker_for(conn))
     return lead["id"]

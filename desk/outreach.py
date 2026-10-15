@@ -1,4 +1,5 @@
 """Outreach messages (plan items 1.5, 1.6, 1.10): pick the language, fill the template, check length."""
+import hashlib
 import re
 
 from .config import TEMPLATE_DIR
@@ -37,6 +38,11 @@ def _city(address, area):
 def load_template(kind, lang):
     with open(TEMPLATE_DIR / f"{kind}_{lang}.txt", encoding="utf-8") as f:
         return f.read().strip()
+
+
+def template_id(kind, lang):
+    """'outreach_fr@1a2b3c4d': the template file plus a hash of its text, so rewordings are told apart."""
+    return f"{kind}_{lang}@" + hashlib.sha1(load_template(kind, lang).encode("utf-8")).hexdigest()[:8]
 
 
 def render(lead, settings, lang=None, kind="outreach"):

@@ -1,9 +1,8 @@
 """LogisQuébec rentals by region (Île-de-Montréal, Laval, Montérégie...), newest first, 10 per page."""
 import html as htmllib
 import re
-import time
 
-from .http import fetch, ld_json, money
+from .http import HostCooling, NotModified, fetch, ld_json, money
 
 BASE = "https://www.logisquebec.com/a-louer/"
 CARD_RE = re.compile(r'<a href="(/[^"]*-l(\d+))" class="property-result[^"]*">(.*?)</a>\s*</li>', re.S)
@@ -45,22 +44,32 @@ def parse(page, region=""):
     return leads
 
 
-def collect(settings, log=print, fetcher=fetch):
+def collect(settings, log=print, fetcher=fetch, known=None):
+    """Newest first per region; stops at the first page with nothing new (caught up) or unchanged."""
     cfg = settings.get("logisquebec", {})
-    pages, delay = int(cfg.get("pages_per_region", 3)), float(cfg.get("delay_seconds", 4))
+    pages = int(cfg.get("pages_per_region", 3))
+    known = known or (lambda _id: False)
     seen = {}
     for region in cfg.get("regions", ["ile-de-montreal", "laval", "monteregie"]):
         for page in range(1, pages + 1):
-            time.sleep(delay)
             url = BASE + region + ("" if page == 1 else f"/{page}")
             try:
                 found = parse(fetcher(url), region)
+            except NotModified:
+                log(f"  LogisQuébec {region}: no change since last check")
+                break
+            except HostCooling as e:
+                if not seen:  # nothing read at all: the board failed this time
+                    raise
+                log(f"  ! LogisQuébec: {e}")
+                return list(seen.values())
             except Exception as e:
                 log(f"  ! LogisQuébec {region} page {page}: {e}")
                 break
-            log(f"  LogisQuébec {region} page {page}: {len(found)} ads")
+            fresh = [l for l in found if not known(l["id"]) and l["id"] not in seen]
+            log(f"  LogisQuébec {region} page {page}: {len(found)} ads, {len(fresh)} new")
             for lead in found:
                 seen.setdefault(lead["id"], lead)
-            if not found:
+            if not fresh:
                 break
     return list(seen.values())

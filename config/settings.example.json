@@ -19,20 +19,37 @@
   "min_rent": 900,
 
   "kijiji": {
-    "pages_per_search": 2,
-    "delay_seconds": 4,
+    "_comment": "Whole locations, newest first, read until caught up with what the desk has seen (max_pages_per_search caps it). No sort/address/ll/radius parameters: Kijiji's robots.txt asks robots not to use them, and the area check sorts ads into areas anyway.",
+    "max_pages_per_search": 8,
     "searches": [
-      {"name": "Saint-Laurent", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Saint-Laurent, QC", "lat": 45.5070, "lng": -73.7050, "radius_km": 6},
-      {"name": "West Island", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Pointe-Claire, QC", "lat": 45.4487, "lng": -73.8166, "radius_km": 12},
-      {"name": "Vaudreuil / Ile-Perrot", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Vaudreuil-Dorion, QC", "lat": 45.4000, "lng": -74.0330, "radius_km": 10},
-      {"name": "Laval / North Shore", "slug": "laval-rive-nord", "location_id": 1700278, "pages": 3},
-      {"name": "Montreal island", "slug": "ville-de-montreal", "location_id": 1700281, "pages": 4},
-      {"name": "South Shore (Brossard, Longueuil)", "slug": "ville-de-montreal", "location_id": 1700281, "address": "Brossard, QC", "lat": 45.4580, "lng": -73.4650, "radius_km": 14}
+      {"name": "Montreal island", "slug": "ville-de-montreal", "location_id": 1700281, "pages": 12},
+      {"name": "Laval / North Shore", "slug": "laval-rive-nord", "location_id": 1700278},
+      {"name": "Longueuil / South Shore", "slug": "longueuil-rive-sud", "location_id": 1700279}
     ]
   },
 
-  "_sources_comment": "Boards read automatically every morning. Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca and Facebook Marketplace block automated reading or need a login: use the 'Add an ad by hand' box for those.",
-  "sources": ["kijiji", "craigslist", "logisquebec", "livrent"],
+  "_sources_comment": "Boards the desk reads by itself. Kijiji's and Craigslist's terms of use forbid automated collection, so by default they come in through their own saved-search email alerts ('alerts') and the capture button instead. Adding 'kijiji' or 'craigslist' here turns the scanner back on for that board: that is the business's call, against those boards' terms. Facebook, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC and Louer.ca: email alerts where the board offers them, the capture button otherwise.",
+  "sources": ["logisquebec", "livrent", "alerts"],
+
+  "scan": {
+    "_comment": "A board is read again only when its last good read is older than its freshness window (minutes). Requests to one host are at least min_interval_seconds apart (more if robots.txt sets a Crawl-delay), plus up to jitter x that at random.",
+    "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "alerts": 30},
+    "auto_refresh_minutes": 60,
+    "min_interval_seconds": 6,
+    "jitter": 0.5,
+    "max_retries": 2,
+    "backoff_seconds": 30,
+    "cooloff_minutes": 60,
+    "blocked_cooloff_hours": 24
+  },
+
+  "alerts": {
+    "_comment": "Saved-search alert emails from the boards. Either drop .eml files in data/inbox/, or fill in imap to read one mailbox folder read-only (password in the macOS keychain under keychain_service). See README, Email alerts.",
+    "days": 3,
+    "imap": {"host": "", "port": 993, "user": "", "folder": "Desk alerts", "keychain_service": "zaarour-desk-alerts"}
+  },
+
+  "learn": {"min_sample": 30, "min_show": 5},
 
   "craigslist": {"url": "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"},
   "logisquebec": {"regions": ["ile-de-montreal", "laval", "monteregie", "laurentides", "lanaudiere"], "pages_per_region": 3, "delay_seconds": 4},

@@ -270,3 +270,7 @@ th { font-weight: 600; color: var(--muted); background: var(--panel); }
 .rstat.ended { color: var(--muted); background: var(--line); }
 tr.st-ended td { color: var(--muted); }
 .rstat.check { color: var(--accent); background: var(--accent-soft); }
+
+.scanbar { margin: 8px 0 0; font-size: 13px; }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: var(--bg); border-color: var(--line); }

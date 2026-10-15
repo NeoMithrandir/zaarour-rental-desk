@@ -1,7 +1,6 @@
 """liv.rent city pages. They list buildings with units for rent (mostly managed buildings), 16 per page."""
-import time
 
-from .http import fetch, ld_json
+from .http import HostCooling, NotModified, fetch, ld_json
 
 BASE = "https://liv.rent/rental-listings/city/"
 
@@ -33,13 +32,20 @@ def parse(page, city=""):
     return leads
 
 
-def collect(settings, log=print, fetcher=fetch):
+def collect(settings, log=print, fetcher=fetch, known=None):
     cfg = settings.get("livrent", {})
     seen = {}
     for city in cfg.get("cities", ["montreal", "laval", "longueuil", "brossard"]):
-        time.sleep(float(cfg.get("delay_seconds", 4)))
         try:
             found = parse(fetcher(BASE + city), city)
+        except NotModified:
+            log(f"  liv.rent {city}: no change since last check")
+            continue
+        except HostCooling as e:
+            if not seen:
+                raise
+            log(f"  ! liv.rent: {e}")
+            break
         except Exception as e:
             log(f"  ! liv.rent {city}: {e}")
             continue
