@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db, feed, lease_import, leases, outreach
+from . import db, feed, lease_import, leases, outreach, tal
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -128,6 +128,7 @@ def tracker_page(conn):
         f"<tr class='st-{r['_status']}'><td><span class='rstat {r['_status']}'>{STATUS_LABEL[r['_status']]}</span></td>"
         f"<td>{esc(r['_call'])}</td><td>{esc(r['address'])}, {esc(r['city'])}</td><td>{esc(r['landlord_name'])}</td>"
         f"<td>{esc(r['_end'])}</td><td><a class='btn' href='/leases/{r['id']}/renewal'>Landlord message</a> "
+        f"<a class='btn' href='/leases/{r['id']}/tal'>TAL calculator</a> "
         f"<a href='/leases/{r['id']}'>Details</a> · <a href='/leases/{r['id']}/lease' target='_blank'>Lease sheet</a></td></tr>"
         for r in rows)
     months = int(load_settings().get("followup_months_before_end", 6))
@@ -139,6 +140,39 @@ to send. <a href="/leases.csv">Download CSV</a></p>
 <p class="muted">Leases come from <a href="/leases/new">New lease</a> and from imports (docs/lease-import-spec.md).
 "Check data" means an imported lease whose end date was guessed or low-confidence: confirm it before calling.</p>"""
     return page("Lease renewal tracker", body, "leases")
+
+
+def tal_page(r, saved=False):
+    inputs = r.get("tal_inputs") or {}
+    calc = tal.for_lease(r)
+    fields = "".join(
+        f'<label class="field wide"><span class="lbl">{esc(label)}</span>'
+        f'<span class="money"><input type="number" step="0.01" min="0" name="{key}" value="{esc(inputs.get(key, ""))}"></span>'
+        f'<small class="muted">{esc(help_)}</small></label>'
+        for key, label, help_ in [tal.CURRENT_RENT] + tal.INPUTS)
+    if calc:
+        rows = "".join(f"<tr><td>{esc(l['label'])}</td><td>${l['amount']:,.2f}</td></tr>" for l in calc["lines"])
+        prov = (f"<p class='banner ask'>The rates for leases renewing on {calc['renewal_start']} aren't published yet "
+                f"(the TAL publishes them in January). This uses the {calc['period']} rates; update "
+                f"<code>config/tal_rates.json</code> when the new ones are out.</p>" if calc["provisional"] else "")
+        result = f"""{prov}<table><tr><th>Renewal starts</th><td>{calc['renewal_start']}</td></tr>
+<tr><th>Current rent</th><td>${calc['rent']:,.2f}</td></tr>{rows}
+<tr><th>Increase</th><td><b>${calc['increase']:,.2f} a month ({calc['increase_pct']:.2f} %)</b></td></tr>
+<tr><th>New rent</th><td><b>${calc['new_rent']:,}</b> (rounded to the dollar)</td></tr>
+<tr><th>This unit's share of the building</th><td>{calc['share_pct']:g} %</td></tr></table>"""
+    else:
+        result = "<p class='banner ask'>Add the current rent below to calculate.</p>"
+    body = f"""<h1>TAL calculator: {esc(r['address'])}</h1>
+<p class="lede">Follows the Tribunal administratif du logement's method for notices given since 1 January 2026
+(base percentage, municipal and school taxes, insurance, 5 % of major work). With only the rent, it applies the base
+percentage; add the building's figures for the full calculation. These numbers go straight into the
+<a href="/leases/{r['id']}/renewal">landlord message</a>.</p>
+{'<p class="banner">Saved.</p>' if saved else ''}{result}
+<p class="muted">The TAL's percentages are a guide, not a cap. Check a final figure with the
+<a href="{esc(tal.official_tool_url())}" target="_blank" rel="noopener">TAL's own tool</a> before the notice goes out.</p>
+<form method="post" action="/leases/{r['id']}/tal" class="form card"><h2>Building figures (optional)</h2>
+<div class="grid">{fields}</div><div class="actions-row"><button class="primary" type="submit">Calculate and save</button></div></form>"""
+    return page("TAL calculator", body, "leases")
 
 
 def renewal_page(r, settings, lang="fr"):
@@ -163,6 +197,7 @@ def renewal_page(r, settings, lang="fr"):
 <p class="lede">Landlord {esc(r['landlord_name'])} {esc(r.get('landlord_phone', ''))} · current term ends {end}{' (renewed by itself from ' + esc(r['lease_end']) + ')' if renewed else ''} ·
 notice window {opens} to {closes} · {STATUS_LABEL[leases.renewal_status(r)]}</p>
 <p>{send} <button class="btn" data-copy="#renewalmsg">Copy text</button>
+ <a class="btn" href="/leases/{r['id']}/tal">TAL calculator</a>
  <a class="btn" href="/leases/{r['id']}/renewal?lang={other}">{'English' if other == 'en' else 'Français'}</a></p>
 <div class="muted">To: {esc(msg['to']) or '—'} · Subject: {esc(msg['subject'])}</div>
 <pre id="renewalmsg">{esc(msg['body'])}</pre>
@@ -416,6 +451,8 @@ class Handler(BaseHTTPRequestHandler):
                                       {"Content-Disposition": f"attachment; filename=renewal-call-{r['id']}.ics"})
                 if parts[2] == "lease":
                     return self._send(200, lease_page(r))
+                if parts[2] == "tal":
+                    return self._send(200, tal_page(r, saved="saved" in qs))
                 if parts[2] == "renewal":
                     lang = (qs.get("lang") or ["fr"])[0]
                     return self._send(200, renewal_page(r, settings, "en" if lang == "en" else "fr"))
@@ -443,6 +480,12 @@ class Handler(BaseHTTPRequestHandler):
                 records = body.get("records", []) if isinstance(body, dict) else body
                 report = lease_import.import_records(conn, records)
                 return self._json({k: v for k, v in report.items()})
+            if path.startswith("/leases/") and path.endswith("/tal"):
+                rid = path.split("/")[2]
+                keys = [tal.CURRENT_RENT[0]] + tal.INPUT_KEYS
+                if rid.isdigit() and leases.save_tal_inputs(conn, int(rid), {k: body.get(k, "") for k in keys}):
+                    return self._send(303, "", headers={"Location": f"/leases/{rid}/tal?saved=1"})
+                return self._json({"error": "not found"}, 404)
             if path.startswith("/leases/") and path.endswith("/verify"):
                 rid = path.split("/")[2]
                 if rid.isdigit() and lease_import.mark_verified(conn, int(rid)):

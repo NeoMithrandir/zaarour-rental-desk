@@ -289,6 +289,42 @@ def renewal_status(r, today=None, settings=None):
     return "upcoming"
 
 
+def _money(n, lang="fr"):
+    return f"{n:,.0f}".replace(",", " " if lang == "fr" else ",")
+
+
+def tal_paragraph(r, lang="fr"):
+    """The numbers from the built-in TAL calculator, as a short paragraph (empty without a rent)."""
+    from . import tal
+    c = tal.for_lease(r)
+    if not c:
+        return ""
+    pct = f"{c['increase_pct']:.1f}".replace(".", "," if lang == "fr" else ".")
+    base = f"{c['base_pct']:g}".replace(".", "," if lang == "fr" else ".")
+    if lang == "fr":
+        what = ("le taux de base, plus les taxes, assurances et travaux de l'immeuble" if c["building_inputs_used"]
+                else f"le taux de base de {base} %")
+        prov = (" Le taux de l'an prochain sera publié en janvier : ce calcul utilise celui de cette année." if c["provisional"] else "")
+        return (f"\nSelon la méthode du Tribunal administratif du logement ({what}), votre loyer de {_money(c['rent'])} $ "
+                f"pourrait passer à {_money(c['new_rent'])} $ par mois (+{pct} %).{prov}\n")
+    what = ("the base rate plus the building's taxes, insurance and work" if c["building_inputs_used"]
+            else f"the {base}% base rate")
+    prov = (" Next year's rate comes out in January; this uses this year's." if c["provisional"] else "")
+    return (f"\nUsing the Tribunal administratif du logement's method ({what}), your rent of ${_money(c['rent'], 'en')} "
+            f"could go to ${_money(c['new_rent'], 'en')} a month (+{pct}%).{prov}\n")
+
+
+def save_tal_inputs(conn, rid, inputs):
+    r = conn.execute("SELECT data FROM rentals WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return False
+    d = json.loads(r["data"])
+    d["tal_inputs"] = {k: str(v).strip() for k, v in inputs.items() if str(v or "").strip()}
+    conn.execute("UPDATE rentals SET data=? WHERE id=?", (json.dumps(d, ensure_ascii=False), rid))
+    conn.commit()
+    return True
+
+
 def renewal_message(r, settings=None, lang="fr"):
     """The message Stefan sends the landlord at the renewal call date (FR or EN)."""
     settings = settings or load_settings()
@@ -299,6 +335,7 @@ def renewal_message(r, settings=None, lang="fr"):
         body = f.read().strip()
     first = (r.get("landlord_name") or "").split(" ")[0].strip(",") if lang == "en" else (r.get("landlord_name") or "")
     body = body.format_map({
+        "tal_paragraph": tal_paragraph(r, lang),
         "landlord_name": first or ("Madame, Monsieur" if lang == "fr" else "there"),
         "address": r["address"] + (f", {r['city']}" if r.get("city") else ""),
         "lease_end": end.isoformat(), "window_opens": opens.isoformat(), "window_closes": closes.isoformat(),

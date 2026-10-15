@@ -1,0 +1,15 @@
+{
+  "_comment": "Percentages the Tribunal administratif du logement publishes each January, by the start date of the renewed lease. Add a row each year (the 2027 row comes out in January 2027). Until a period's row exists, the calculator uses the latest row and marks the result as provisional.",
+  "official_tool_url": "https://www.tal.gouv.qc.ca/fr/reconduction-du-bail-et-fixation-de-loyer/augmentation-de-loyer",
+  "periods": [
+    {
+      "renewal_start_from": "2026-04-02",
+      "renewal_start_to": "2027-04-01",
+      "base_pct": 3.1,
+      "services_pct": 6.7,
+      "capex_pct": 5.0,
+      "published": "2026-01-19",
+      "method": "Règlement sur les critères de fixation de loyer, as amended by décret 1455-2025 (in force 2026-01-01)"
+    }
+  ]
+}

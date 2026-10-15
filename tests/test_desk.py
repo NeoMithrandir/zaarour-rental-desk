@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import db, feed, lease_import, leases, outreach  # noqa: E402
+from desk import db, feed, lease_import, leases, outreach, tal  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
@@ -318,6 +318,41 @@ class LeaseImportTests(unittest.TestCase):
         dup = dict(bad[0], lease_start="2026-07-01")
         rep = lease_import.import_records(self.conn, [dup])
         self.assertEqual((rep["added"], len(rep["skipped"])), (0, 1))
+
+
+class TalTests(unittest.TestCase):
+    def test_base_only(self):
+        c = tal.compute(1500, date(2026, 7, 1))
+        self.assertEqual((c["increase"], c["new_rent"], c["provisional"]), (46.5, 1546, False))
+
+    def test_building_figures(self):
+        # 1 of 8 units' worth of rent; municipal taxes +4 % (0.9 % above the base); $10,000 of work.
+        c = tal.compute(1000, "2026-07-01", {"building_rents": 8000, "municipal_tax_ref": 24000,
+                                             "municipal_tax_next": 24960, "capex": 10000})
+        self.assertEqual([l["amount"] for l in c["lines"]], [31.0, 2.25, 5.21])
+        self.assertEqual((c["increase"], c["new_rent"]), (38.46, 1038))
+
+    def test_rules(self):
+        # Tax rise below the base adds nothing; a tax drop lowers the rent.
+        c = tal.compute(1000, "2026-07-01", {"school_tax_prev": 1200, "school_tax_ref": 1220})
+        self.assertEqual(c["lines"][1]["amount"], 0.0)
+        c = tal.compute(1000, "2026-07-01", {"insurance_prev": 1200, "insurance_ref": 1080})
+        self.assertEqual(c["lines"][1]["amount"], -10.0)
+        # A loan-financed job can't add more than the year's repayment.
+        c = tal.compute(1000, "2026-07-01", {"capex": 100000, "capex_loan_repayment": 1200})
+        self.assertEqual(c["lines"][1]["amount"], 100.0)
+        # No published rate yet for that renewal: latest rate, marked provisional.
+        self.assertTrue(tal.compute(1000, "2027-07-01")["provisional"])
+        self.assertIsNone(tal.compute("", "2026-07-01"))
+
+    def test_message_has_the_numbers(self):
+        r = {k: "" for k in leases.FIELD_KEYS}
+        r.update(address="1 Rue A", city="Laval", landlord_name="Jean", lease_start="2026-07-01",
+                 lease_end="2027-06-30", followup_date="2026-12-30", rent="1500")
+        self.assertIn("1 546 $", leases.renewal_message(r, lang="fr")["body"])
+        self.assertIn("$1,546", leases.renewal_message(r, lang="en")["body"])
+        r["tal_inputs"] = {"current_rent": "1600"}
+        self.assertIn("1 650 $", leases.renewal_message(r, lang="fr")["body"])
 
 
 if __name__ == "__main__":
