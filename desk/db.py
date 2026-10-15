@@ -80,3 +80,9 @@ def known_posters(conn):
 def mark_poster(conn, source, poster_id, label):
     if poster_id:
         conn.execute("INSERT OR REPLACE INTO known_posters VALUES (?,?,?,?)", (source, poster_id, label, now()))
+
+
+def unmark_poster(conn, source, poster_id, label):
+    """Forget a learned poster, but only the entry a given action created (undo of a Broker reject)."""
+    if poster_id:
+        conn.execute("DELETE FROM known_posters WHERE source=? AND poster_id=? AND label=?", (source, poster_id, label))

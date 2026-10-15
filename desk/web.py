@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import db, feed, outreach, rentals
 from .config import UI_DIR, load_settings
 
+BROKER_LABEL = "Rejected as broker by Stefan"
 REJECT_REASONS = ["Broker", "Already listed", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"]
 
 
@@ -24,12 +25,13 @@ def esc(s):
 def page(title, body, active=""):
     nav = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
-        for key, href, label in [("leads", "/", "Leads"), ("rental", "/rentals/new", "New rental (Tanya)"),
+        for key, href, label in [("leads", "/", "Leads"), ("rental", "/rentals/new", "New rental"),
                                  ("rentals", "/rentals", "Rentals"), ("stats", "/stats", "Scorecard")])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Zaarour Rentals</title>
 <link rel="stylesheet" href="/ui/style.css"></head><body>
-<header><strong>Zaarour Rentals desk</strong><nav>{nav}</nav></header><main>{body}</main></body></html>"""
+<header><a class="brand" href="/"><span class="logo">Z</span><span>Rentals desk</span></a><nav>{nav}</nav></header>
+<main class="{active}">{body}</main></body></html>"""
 
 
 # ---------------------------------------------------------------- pages
@@ -37,22 +39,29 @@ def leads_page():
     return page("Leads", open(UI_DIR / "leads.html", encoding="utf-8").read(), "leads")
 
 
+WIDE = {"address", "landlord_address", "tenant_current_address", "appliances", "notes_for_tanya",
+        "lowest_rent_12m", "new_building", "building_rules"}
+
+
 def field_html(key, label, kind, required, value=""):
     req = " required" if required else ""
-    star = " *" if required else ""
+    wide = " wide" if key in WIDE or kind == "textarea" else ""
     if kind == "textarea":
-        inp = f'<textarea name="{key}" rows="3">{esc(value)}</textarea>'
+        inp = f'<textarea name="{key}" id="f-{key}" rows="3">{esc(value)}</textarea>'
     elif kind == "check":
-        inp = f'<input type="checkbox" name="{key}"{" checked" if value else ""}>'
-        return f'<label class="check">{inp} {esc(label)}</label>'
+        inp = f'<input type="checkbox" name="{key}" id="f-{key}"{" checked" if value else ""}>'
+        return f'<label class="field check{wide}">{inp}<span>{esc(label)}</span></label>'
     elif kind.startswith("select:"):
         opts = "".join(f'<option{" selected" if o == value else ""}>{esc(o)}</option>' for o in [""] + kind[7:].split("|"))
-        inp = f'<select name="{key}"{req}>{opts}</select>'
+        inp = f'<select name="{key}" id="f-{key}"{req}>{opts}</select>'
     else:
         t = {"money": "number", "number": "number"}.get(kind, kind)
-        step = ' step="0.01" min="0"' if kind == "money" else ""
-        inp = f'<input type="{t}" name="{key}" value="{esc(value)}"{step}{req}>'
-    return f"<label>{esc(label)}{star}{inp}</label>"
+        step = ' step="0.01" min="0" inputmode="decimal"' if kind == "money" else ""
+        inp = f'<input type="{t}" name="{key}" id="f-{key}" value="{esc(value)}"{step}{req}>'
+        if kind == "money":
+            inp = f'<span class="money">{inp}</span>'
+    tag = '<em class="req">Required</em>' if required else ""
+    return f'<label class="field{wide}"><span class="lbl">{esc(label)}{tag}</span>{inp}</label>'
 
 
 def rental_form(values=None, errors=None):
@@ -61,13 +70,22 @@ def rental_form(values=None, errors=None):
     for key, label, kind, req, section in rentals.FIELDS:
         sections.setdefault(section, []).append(field_html(key, label, kind, req, values.get(key, "")))
     err = "".join(f"<li>{esc(e)}</li>" for e in (errors or []))
-    body = f"""<h1>New rental</h1>
-<p class="muted">Fill this in when a lease is signed. It writes the email to Tanya, books your renewal call
-six months before the lease ends, and prepares the lease sheet.</p>
-{f'<ul class="errors">{err}</ul>' if err else ''}
-<form method="post" action="/rentals/new" class="form">
-{''.join(f'<fieldset><legend>{esc(s)}</legend>{"".join(f)}</fieldset>' for s, f in sections.items())}
-<button class="primary" type="submit">Save and prepare email</button></form>"""
+    months = int(load_settings().get("followup_months_before_end", 6))
+    sid = lambda s: "s-" + s.lower()
+    toc = "".join(f'<a href="#{sid(s)}" data-sec="{sid(s)}"><i></i>{esc(s)}</a>' for s in sections)
+    body = f"""<div class="formpage">
+<aside class="toc noprint"><div class="toc-in"><p class="eyebrow">Sections</p>{toc}</div></aside>
+<div class="formmain">
+<h1>New rental</h1>
+<p class="lede">Fill this in when a lease is signed. Saving writes the email to Tanya, books your renewal call
+{months} months before the lease ends, and prepares the lease sheet. Nothing is sent until you send the email.</p>
+{f'<div class="banner bad"><strong>Almost there.</strong><ul>{err}</ul></div>' if err else ''}
+<form method="post" action="/rentals/new" class="form" id="rentalform" data-months="{months}">
+{''.join(f'<section class="card fsec" id="{sid(s)}"><h2>{esc(s)}</h2><div class="grid">{"".join(f)}</div></section>' for s, f in sections.items())}
+<div class="savebar"><span id="left" class="muted"></span><span id="renewal" class="muted"></span>
+<button class="primary big" type="submit">Save and prepare email</button></div>
+</form></div></div>
+<script src="/ui/form.js"></script>"""
     return page("New rental", body, "rental")
 
 
@@ -149,16 +167,17 @@ def stats_page(conn):
 # ---------------------------------------------------------------- API
 def api_leads(conn, settings, tab, phase=""):
     wheres = {
+        "approved": ("status='approved'", ()),
         "sent": ("status='sent'", ()),
         "later": ("status='later'", ()),
         "rejected": ("status='rejected'", ()),
     }
     bucket = tab if tab in ("broker", "hidden") else "review"
-    where, args = wheres.get(tab, ("status IN ('new','approved') AND bucket=?", (bucket,)))
+    where, args = wheres.get(tab, ("status='new' AND bucket=?", (bucket,)))
     # Phase 1 areas first, then owners before property managers, newest first within each.
     if phase in ("1", "2"):
         where, args = f"({where}) AND phase=?", tuple(args) + (int(phase),)
-    order = "sent_at DESC" if tab == "sent" else "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC"
+    order = "sent_at DESC" if tab == "sent" else "decided_at DESC" if tab in ("approved", "rejected") else "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC"
     rows = conn.execute(f"SELECT * FROM leads WHERE {where} ORDER BY {order} LIMIT 3000", args).fetchall()
     out, by_poster = [], {}
     for r in rows:
@@ -176,12 +195,30 @@ def api_leads(conn, settings, tab, phase=""):
         d["followup_fr"] = outreach.render(d, settings, "fr", "followup")
         d["followup_en"] = outreach.render(d, settings, "en", "followup")
         out.append(d)
-    counts = {r["k"]: r["n"] for r in conn.execute(
-        "SELECT CASE WHEN status IN ('new','approved') THEN bucket ELSE status END k, "
-        "COUNT(DISTINCT CASE WHEN poster_id!='' AND status IN ('new','approved') THEN source||poster_id ELSE id END) n "
-        "FROM leads GROUP BY k")}
-    return {"leads": out, "counts": counts, "limit": int(settings.get("message_char_limit", 1000)),
-            "reasons": REJECT_REASONS}
+    return {"leads": out, "counts": lead_counts(conn), "today": today_counts(conn),
+            "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS}
+
+
+def lead_counts(conn):
+    """Cards per tab. Waiting ads count once per poster, exactly like the cards (see poster_key)."""
+    counts = {r["status"]: r["n"] for r in conn.execute(
+        "SELECT status, COUNT(*) n FROM leads WHERE status!='new' GROUP BY status")}
+    seen = set()
+    for r in conn.execute("SELECT id, bucket, source, poster_id, title FROM leads WHERE status='new'"):
+        b = r["bucket"]
+        key = poster_key(dict(r)) if b in ("review", "broker") else None
+        if key and (b, key) in seen:
+            continue
+        seen.add((b, key or r["id"]))
+        counts[b] = counts.get(b, 0) + 1
+    return counts
+
+
+def today_counts(conn):
+    t = date.today().isoformat()
+    q = lambda where: conn.execute(f"SELECT COUNT(*) FROM leads WHERE {where}", (t,)).fetchone()[0]
+    return {"approved": q("status IN ('approved','sent') AND decided_at>=?"), "sent": q("sent_at>=?"),
+            "rejected": q("status='rejected' AND decided_at>=?"), "later": q("status='later' AND decided_at>=?")}
 
 
 def poster_key(d):
@@ -226,13 +263,25 @@ def api_decide(conn, lead_id, body):
         reason = body.get("reason", "Other")
         conn.execute("UPDATE leads SET status='rejected', decided_at=?, reject_reason=? WHERE id=?", (t, reason, lead_id))
         if reason == "Broker":  # learn: the next ad from this poster is flagged automatically
-            db.mark_poster(conn, r["source"], r["poster_id"], "Rejected as broker by Stefan")
+            db.mark_poster(conn, r["source"], r["poster_id"], BROKER_LABEL)
     elif action == "later":
         conn.execute("UPDATE leads SET status='later', decided_at=? WHERE id=?", (t, lead_id))
     elif action == "undo":
+        if r["status"] == "rejected" and r["reject_reason"] == "Broker":  # un-learn a mis-click
+            db.unmark_poster(conn, r["source"], r["poster_id"], BROKER_LABEL)
         conn.execute("UPDATE leads SET status='new', decided_at=NULL, reject_reason=NULL, sent_at=NULL WHERE id=?", (lead_id,))
+    elif action == "unsend":  # undo of Mark sent: back to the To send queue
+        conn.execute("UPDATE leads SET status='approved', sent_at=NULL WHERE id=?", (lead_id,))
     elif action in ("replied", "presentation", "listing", "no_reply"):
         conn.execute("UPDATE leads SET outcome=?, outcome_at=? WHERE id=?", (action, t, lead_id))
+    elif action == "set_outcome":  # undo of an outcome button: put the previous one back (or none)
+        prev = body.get("outcome") or None
+        conn.execute("UPDATE leads SET outcome=?, outcome_at=? WHERE id=?", (prev, t if prev else None, lead_id))
+    elif action == "rebucket":  # "Move to review" from Hidden, and its undo
+        b = body.get("bucket")
+        if b not in ("review", "broker", "hidden"):
+            return {"error": "bad bucket"}, 400
+        conn.execute("UPDATE leads SET bucket=? WHERE id=?", (b, lead_id))
     elif action == "note":
         conn.execute("UPDATE leads SET notes=? WHERE id=?", (body.get("notes", ""), lead_id))
     else:
@@ -281,6 +330,8 @@ class Handler(BaseHTTPRequestHandler):
                 if f.resolve().parent != UI_DIR.resolve() or not f.exists():
                     return self._send(404, "not found", "text/plain")
                 return self._send(200, f.read_bytes(), mimetypes.guess_type(str(f))[0] or "text/plain")
+            if path == "/api/counts":
+                return self._json({"counts": lead_counts(conn), "today": today_counts(conn)})
             if path == "/api/leads":
                 return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0]))
             if path == "/rentals/new":
@@ -322,8 +373,13 @@ class Handler(BaseHTTPRequestHandler):
                 lead_id = urllib.parse.unquote(path[len("/api/lead/"):-len("/decide")])
                 res, code = api_decide(conn, lead_id, body)
                 return self._json(res, code)
+            if path == "/api/decide-many":
+                done = [api_decide(conn, i, body)[1] == 200 for i in body.get("ids", [])]
+                return self._json({"ok": sum(done)})
             if path == "/api/manual":
-                return self._json({"id": feed.add_manual(conn, body)})
+                lid = feed.add_manual(conn, body)
+                r = conn.execute("SELECT bucket FROM leads WHERE id=?", (lid,)).fetchone()
+                return self._json({"id": lid, "bucket": r["bucket"] if r else ""})
             if path == "/api/recheck":
                 return self._json(dict(feed.recheck_all(conn)))
             if path == "/rentals/new":

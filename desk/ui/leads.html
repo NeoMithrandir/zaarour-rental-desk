@@ -1,33 +1,80 @@
-<div class="toolbar">
-  <h1>This morning's landlord ads</h1>
-  <div class="tabs" id="tabs">
-    <button data-tab="review" class="on">To review <span></span></button>
-    <button data-tab="broker">Likely broker <span></span></button>
-    <button data-tab="later">Later <span></span></button>
-    <button data-tab="sent">Sent <span></span></button>
-    <button data-tab="rejected">Rejected <span></span></button>
-    <button data-tab="hidden">Hidden <span></span></button>
+<div class="deskbar">
+  <div class="deskbar-row">
+    <div>
+      <h1>This morning's landlord ads</h1>
+      <p class="sub">You approve, the desk copies the message and opens the ad, you send it. Nothing is ever sent without you.</p>
+    </div>
+    <div class="deskbar-tools">
+      <button id="addbtn" class="ghost" type="button" aria-expanded="false">+ Add an ad by hand</button>
+      <button id="helpbtn" class="ghost icon" type="button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+    </div>
   </div>
-  <label class="phase">Show <select id="phase"><option value="">all areas</option><option value="1">phase 1 only (Saint-Laurent to West Island, Laval)</option><option value="2">phase 2 only (Montreal, South and North Shore)</option></select></label>
+  <div class="deskbar-row">
+    <nav class="tabs" id="tabs" aria-label="Lists">
+      <div class="tabgroup">
+        <button data-tab="review">Review <b></b></button>
+        <button data-tab="broker">Likely broker <b></b></button>
+        <button data-tab="approved">To send <b></b></button>
+        <button data-tab="later">Later <b></b></button>
+        <button data-tab="sent">Sent <b></b></button>
+      </div>
+      <div class="tabgroup quiet">
+        <button data-tab="rejected">Rejected <b></b></button>
+        <button data-tab="hidden">Hidden <b></b></button>
+      </div>
+    </nav>
+    <div class="filters">
+      <div class="seg" id="phase" role="radiogroup" aria-label="Areas">
+        <button data-phase="" title="Every area">All areas</button>
+        <button data-phase="1" title="Saint-Laurent to the West Island, Vaudreuil, Laval">Phase 1</button>
+        <button data-phase="2" title="Montreal island, South Shore, North Shore">Phase 2</button>
+      </div>
+      <div class="seg" id="view" aria-label="View">
+        <button data-view="card" title="One at a time (V)">One at a time</button>
+        <button data-view="list" title="List with bulk actions (V)">List</button>
+      </div>
+    </div>
+  </div>
+  <div class="progress" id="progress" hidden><div class="bar"><i></i></div><span></span></div>
 </div>
-<p class="muted" id="hint">For each ad: <b>Approve</b> copies the message and opens the ad, paste it in the
-board's contact box and send, then press <b>Mark sent</b>. Nothing is ever sent without you.
-Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>r</kbd> reject, <kbd>l</kbd> later.</p>
-<div id="list"></div>
 
-<details class="manual">
-  <summary>Add an ad by hand (Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca…)</summary>
-  <form id="manual" class="form">
-    <label>Where<select name="source"><option value="facebook">Facebook Marketplace</option><option value="lespac">LesPAC</option>
-      <option value="rentalsca">Rentals.ca</option><option value="padmapper">PadMapper / Zumper</option>
+<div id="sendcheck" class="banner ask" hidden></div>
+
+<form id="manual" class="card manual" hidden>
+  <div class="manual-head"><h2>Add an ad by hand</h2>
+    <p class="muted">For boards the desk can't read: Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. It goes through the same checks.</p></div>
+  <div class="grid">
+    <label class="field"><span class="lbl">Where</span><select name="source"><option value="facebook">Facebook Marketplace</option><option value="group">Facebook group</option>
+      <option value="lespac">LesPAC</option><option value="rentalsca">Rentals.ca</option><option value="padmapper">PadMapper / Zumper</option>
       <option value="appartogo">Appartogo</option><option value="louer">Louer.ca</option><option value="duproprio">DuProprio</option>
-      <option value="group">Facebook group</option><option value="other">Other</option></select></label>
-    <label>Ad link<input name="url" type="url"></label>
-    <label>Title<input name="title"></label>
-    <label>Address (with postal code if shown)<input name="address"></label>
-    <label>Rent ($)<input name="price" type="number"></label>
-    <label>Ad text (paste)<textarea name="text" rows="3"></textarea></label>
-    <button class="primary" type="submit">Check and add</button>
-  </form>
-</details>
+      <option value="other">Other</option></select></label>
+    <label class="field"><span class="lbl">Ad link</span><input name="url" type="url" placeholder="https://"></label>
+    <label class="field"><span class="lbl">Title</span><input name="title"></label>
+    <label class="field"><span class="lbl">Rent</span><span class="money"><input name="price" type="number" inputmode="numeric"></span></label>
+    <label class="field wide"><span class="lbl">Address (with postal code if shown)</span><input name="address"></label>
+    <label class="field wide"><span class="lbl">Ad text (paste)</span><textarea name="text" rows="3"></textarea></label>
+  </div>
+  <div class="actions-row"><button type="button" class="ghost" id="manualcancel">Cancel</button><button class="primary" type="submit">Check and add</button></div>
+</form>
+
+<div id="stage"></div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<dialog id="help" class="help">
+  <h2>Keyboard shortcuts</h2>
+  <dl>
+    <dt><kbd>A</kbd> or <kbd>Enter</kbd></dt><dd>Approve: copy the message and open the ad</dd>
+    <dt><kbd>R</kbd> then <kbd>1</kbd>–<kbd>7</kbd></dt><dd>Reject with a reason (<kbd>1</kbd> Broker)</dd>
+    <dt><kbd>L</kbd></dt><dd>Later</dd>
+    <dt><kbd>J</kbd> / <kbd>K</kbd> or <kbd>→</kbd> / <kbd>←</kbd></dt><dd>Next / previous ad</dd>
+    <dt><kbd>Z</kbd> or <kbd>⌘Z</kbd></dt><dd>Undo the last action (repeat to go further back)</dd>
+    <dt><kbd>E</kbd></dt><dd>Edit the message (<kbd>Esc</kbd> to leave the box)</dd>
+    <dt><kbd>F</kbd></dt><dd>Switch the message between French and English</dd>
+    <dt><kbd>S</kbd></dt><dd>Mark sent (To send tab)</dd>
+    <dt><kbd>V</kbd></dt><dd>Switch between one-at-a-time and list</dd>
+    <dt><kbd>X</kbd></dt><dd>Select the row in list view</dd>
+  </dl>
+  <form method="dialog"><button class="primary">Got it</button></form>
+</dialog>
 <script src="/ui/app.js"></script>

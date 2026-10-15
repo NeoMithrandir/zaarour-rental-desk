@@ -208,5 +208,60 @@ class RentalTests(unittest.TestCase):
             conn.close()
 
 
+
+class ReviewScreenTests(unittest.TestCase):
+    """The review screen's API: To send queue, undo (including un-learning a Broker mis-click), bulk, counts."""
+
+    def setUp(self):
+        from desk import web
+        self.web = web
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        feed.process(self.conn, kijiji.parse(FIXTURE, "test"), Checker(load_areas(), self.settings))
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def decide(self, lid, **body):
+        return self.web.api_decide(self.conn, lid, body)
+
+    def status(self, lid):
+        return self.conn.execute("SELECT status FROM leads WHERE id=?", (lid,)).fetchone()[0]
+
+    def test_approved_waits_in_to_send(self):
+        self.decide("kijiji:1", action="approve", message="Bonjour")
+        review = [l["id"] for l in self.web.api_leads(self.conn, self.settings, "review")["leads"]]
+        to_send = self.web.api_leads(self.conn, self.settings, "approved")
+        self.assertNotIn("kijiji:1", review)
+        self.assertEqual([l["id"] for l in to_send["leads"]], ["kijiji:1"])
+        self.assertEqual(to_send["counts"]["approved"], 1)
+        self.decide("kijiji:1", action="sent")
+        self.decide("kijiji:1", action="unsend")  # undo of Mark sent
+        self.assertEqual(self.status("kijiji:1"), "approved")
+
+    def test_undo_broker_reject_forgets_poster(self):
+        self.decide("kijiji:1", action="reject", reason="Broker")
+        self.assertIn("p1", db.known_posters(self.conn))
+        self.decide("kijiji:1", action="undo")
+        self.assertNotIn("p1", db.known_posters(self.conn))
+        self.assertEqual(self.status("kijiji:1"), "new")
+
+    def test_outcome_undo_and_rebucket(self):
+        self.decide("kijiji:1", action="sent")
+        self.decide("kijiji:1", action="listing")
+        self.decide("kijiji:1", action="set_outcome", outcome="")
+        self.assertIsNone(self.conn.execute("SELECT outcome FROM leads WHERE id='kijiji:1'").fetchone()[0])
+        self.decide("kijiji:8", action="rebucket", bucket="review")
+        self.assertEqual(self.conn.execute("SELECT bucket FROM leads WHERE id='kijiji:8'").fetchone()[0], "review")
+        self.assertEqual(self.decide("kijiji:8", action="rebucket", bucket="nope")[1], 400)
+
+    def test_counts_match_cards(self):
+        for tab in ("review", "broker", "hidden"):
+            res = self.web.api_leads(self.conn, self.settings, tab)
+            self.assertEqual(res["counts"].get(tab, 0), len(res["leads"]), tab)
+
+
 if __name__ == "__main__":
     unittest.main()

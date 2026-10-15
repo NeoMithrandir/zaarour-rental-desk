@@ -5,9 +5,9 @@ Stefan's daily tool for the 2027 rental plan ([plan](../docs/2027-growth-action-
 | Plan item | What it does here |
 |---|---|
 | 1.1 Daily lead feed | Every morning, reads the newest rental ads from Kijiji, Craigslist (owners only), LogisQuébec and liv.rent across every market in the research: the phase 1 corridor (Saint-Laurent to the West Island, Vaudreuil/Île-Perrot) and Laval first, then Montreal island (downtown and the student areas, Griffintown/Saint-Henri, Plateau, Rosemont, Villeray, NDG/Côte-des-Neiges, the rest of the island), the South Shore (Brossard REM corridor, Longueuil) and the North Shore. New ads only: anything already seen keeps Stefan's decision. |
-| 1.2 Sources | Read automatically: Kijiji, Craigslist, LogisQuébec, liv.rent. Not readable automatically (they block automated reading or need a login): Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. Those are pasted in by hand (box at the bottom of the screen) and go through the same checks. |
+| 1.2 Sources | Read automatically: Kijiji, Craigslist, LogisQuébec, liv.rent. Not readable automatically (they block automated reading or need a login): Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC, Louer.ca. Those are pasted in by hand (**Add an ad by hand** at the top of the screen) and go through the same checks. |
 | 1.3 Auto-filtering | Drops tenant ads (lease transfers, sublets, rooms) and anything outside the target area. Flags likely brokers (broker wording, agency names, known broker phones/emails, posters Stefan rejected as brokers before). Checks the address against a Centris export once one is loaded; until then each card has a "check Centris / Realtor" link. |
-| 1.4 Send | **Approve** copies the message and opens the ad; Stefan pastes it in Kijiji's contact box and sends, then presses **Mark sent**. Nothing is sent automatically. |
+| 1.4 Send | **Approve** copies the message and opens the ad; Stefan pastes it in the board's contact box and sends, then confirms **Mark sent** (approved ads wait in **To send** until then). Nothing is sent automatically. |
 | 1.5 / 1.6 Message | French and English templates with the broker disclaimer, a character counter against the platform limit, and the disclaimer re-added if an edit drops it. |
 | 1.8 Property managers | Kept, tagged, shown after owners. All ads from one poster collapse into one card (on Craigslist, which has no poster ids, identical titles count as one poster), so a manager with 8 ads gets one message. |
 | 1.9 Geography | Phase 1 areas sort to the top; phase 2 areas carry a "Phase 2" tag, and a filter at the top shows one phase at a time. |
@@ -25,10 +25,11 @@ Once:
 
 Every morning: double-click **`morning.command`**. It fetches today's ads (about a minute), then opens the review screen in the browser. Then:
 
-- `j` / `k` to move, **Approve** (`a`) to copy the message and open the ad, paste and send on Kijiji, then **Mark sent**.
-- **Reject…** (`r`) with a reason. "Broker" teaches the tool: that poster is flagged next time.
-- **Later** (`l`) parks an ad.
-- On the **Sent** tab, record what happened: Replied, Presentation booked, Listing signed, No reply.
+- The review screen shows one ad at a time. **Approve** (`A`) copies the message and opens the ad: paste it in the board's contact box and send. When you come back to the desk, it asks whether you sent it; **Yes, mark sent** (`S`). Anything approved but not marked sent waits in the **To send** tab.
+- **Reject** (`R`) shows the reasons; pick one with a click or `1`–`7`. "Broker" teaches the tool: that poster is flagged next time.
+- **Later** (`L`) parks an ad. **Undo** (`Z`) reverses the last action, and keeps going back.
+- `V` switches to a list where you can tick several ads and reject or park them together. `?` lists every shortcut.
+- On the **Sent** tab, record what happened: Replied, Presentation booked, Listing signed, No reply. Follow-up messages are there too.
 
 From a terminal instead:
 
