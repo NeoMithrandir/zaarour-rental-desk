@@ -1,4 +1,4 @@
-"""Local web app: Stefan's morning review screen, the Tanya form, the lease sheet and the scorecard.
+"""Local web app: Stefan's morning review screen, the lease renewal tracker, the lease sheet and the scorecard.
 
 Runs on http://127.0.0.1:8765 (this computer only). Standard library only.
 """
@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db, feed, outreach, rentals
+from . import db, feed, leases, outreach
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -25,8 +25,8 @@ def esc(s):
 def page(title, body, active=""):
     nav = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
-        for key, href, label in [("leads", "/", "Leads"), ("rental", "/rentals/new", "New rental"),
-                                 ("rentals", "/rentals", "Rentals"), ("stats", "/stats", "Scorecard")])
+        for key, href, label in [("leads", "/", "Leads"), ("lease", "/leases/new", "New lease"),
+                                 ("leases", "/leases", "Renewals"), ("stats", "/stats", "Scorecard")])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Zaarour Rentals</title>
 <link rel="stylesheet" href="/ui/style.css"></head><body>
@@ -39,7 +39,7 @@ def leads_page():
     return page("Leads", open(UI_DIR / "leads.html", encoding="utf-8").read(), "leads")
 
 
-WIDE = {"address", "landlord_address", "tenant_current_address", "appliances", "notes_for_tanya",
+WIDE = {"address", "landlord_address", "tenant_current_address", "appliances", "notes_for_office",
         "lowest_rent_12m", "new_building", "building_rules"}
 
 
@@ -64,10 +64,10 @@ def field_html(key, label, kind, required, value=""):
     return f'<label class="field{wide}"><span class="lbl">{esc(label)}{tag}</span>{inp}</label>'
 
 
-def rental_form(values=None, errors=None):
+def lease_form(values=None, errors=None):
     values = values or {}
     sections = {}
-    for key, label, kind, req, section in rentals.FIELDS:
+    for key, label, kind, req, section in leases.FIELDS:
         sections.setdefault(section, []).append(field_html(key, label, kind, req, values.get(key, "")))
     err = "".join(f"<li>{esc(e)}</li>" for e in (errors or []))
     months = int(load_settings().get("followup_months_before_end", 6))
@@ -76,62 +76,99 @@ def rental_form(values=None, errors=None):
     body = f"""<div class="formpage">
 <aside class="toc noprint"><div class="toc-in"><p class="eyebrow">Sections</p>{toc}</div></aside>
 <div class="formmain">
-<h1>New rental</h1>
-<p class="lede">Fill this in when a lease is signed. Saving writes the email to Tanya, books your renewal call
-{months} months before the lease ends, and prepares the lease sheet. Nothing is sent until you send the email.</p>
+<h1>New lease</h1>
+<p class="lede">Fill this in when a lease is signed. Saving adds it to the renewal tracker with a renewal call
+{months} months before the lease ends, writes the email to the office and prepares the lease sheet. Nothing is sent until you send the email.</p>
 {f'<div class="banner bad"><strong>Almost there.</strong><ul>{err}</ul></div>' if err else ''}
-<form method="post" action="/rentals/new" class="form" id="rentalform" data-months="{months}">
+<form method="post" action="/leases/new" class="form" id="leaseform" data-months="{months}">
 {''.join(f'<section class="card fsec" id="{sid(s)}"><h2>{esc(s)}</h2><div class="grid">{"".join(f)}</div></section>' for s, f in sections.items())}
 <div class="savebar"><span id="left" class="muted"></span><span id="renewal" class="muted"></span>
 <button class="primary big" type="submit">Save and prepare email</button></div>
 </form></div></div>
 <script src="/ui/form.js"></script>"""
-    return page("New rental", body, "rental")
+    return page("New lease", body, "lease")
 
 
-def rental_done(r, settings):
-    mail = rentals.tanya_email(r, settings)
+def lease_done(r, settings):
+    mail = leases.office_email(r, settings)
     mailto = "mailto:" + urllib.parse.quote(mail["to"]) + "?" + urllib.parse.urlencode(
         {"subject": mail["subject"], "body": mail["body"]}, quote_via=urllib.parse.quote)
     body = f"""<h1>Saved: {esc(r['address'])}</h1>
 <ol class="steps">
-<li><strong>Email Tanya.</strong> <a class="btn primary" href="{esc(mailto)}">Open in my mail app</a>
+<li><strong>Email the office the lease details.</strong> <a class="btn primary" href="{esc(mailto)}">Open in my mail app</a>
  <button class="btn" data-copy="#mailbody">Copy text</button>
  <div class="muted">To: {esc(mail['to'])} · Subject: {esc(mail['subject'])}</div>
  <pre id="mailbody">{esc(mail['body'])}</pre></li>
-<li><strong>Add the renewal call to your calendar</strong> ({esc(r['followup_date'])}).
- <a class="btn primary" href="/rentals/{r['id']}/followup.ics">Download calendar event</a></li>
-<li><strong>Lease.</strong> <a class="btn" href="/rentals/{r['id']}/lease" target="_blank">Open lease prep sheet</a></li>
+<li><strong>Add the renewal call to your calendar</strong> ({esc(r['followup_date'])}). It's also on the
+ <a href="/leases">renewal tracker</a> with the message for the landlord.
+ <a class="btn primary" href="/leases/{r['id']}/followup.ics">Download calendar event</a></li>
+<li><strong>Lease.</strong> <a class="btn" href="/leases/{r['id']}/lease" target="_blank">Open lease prep sheet</a></li>
 </ol>
-<p><a href="/rentals/new">Enter another rental</a></p>
+<p><a href="/leases/new">Enter another lease</a></p>
 <script src="/ui/copy.js"></script>"""
-    return page("Rental saved", body, "rental")
+    return page("Lease saved", body, "lease")
 
 
-def rentals_list(conn):
-    rows = rentals.export_rows(conn)
+STATUS_LABEL = {"due": "Call now", "upcoming": "Upcoming", "ended": "Lease ended"}
+
+
+def tracker_page(conn):
+    rows = leases.export_rows(conn)
+    for r in rows:
+        r["_status"] = leases.renewal_status(r)
+    order = {"due": 0, "upcoming": 1, "ended": 2}
+    rows.sort(key=lambda r: (order[r["_status"]], r["followup_date"]))
+    due = sum(1 for r in rows if r["_status"] == "due")
     trs = "".join(
-        f"<tr><td>{esc(r['address'])}, {esc(r['city'])}</td><td>{esc(r['landlord_name'])}</td><td>{esc(r['lease_end'])}</td>"
-        f"<td>{esc(r['followup_date'])}</td><td><a href='/rentals/{r['id']}'>Open</a> · "
-        f"<a href='/rentals/{r['id']}/lease' target='_blank'>Lease sheet</a></td></tr>" for r in rows)
-    body = f"""<h1>Rentals entered</h1>
-<p class="muted">{len(rows)} so far. Each one has a lease end date, which is the data engine 3 (renewals) needs.
-<a href="/rentals.csv">Download CSV</a></p>
-<table><tr><th>Property</th><th>Landlord</th><th>Lease ends</th><th>Renewal call</th><th></th></tr>{trs}</table>"""
-    return page("Rentals", body, "rentals")
+        f"<tr class='st-{r['_status']}'><td><span class='rstat {r['_status']}'>{STATUS_LABEL[r['_status']]}</span></td>"
+        f"<td>{esc(r['followup_date'])}</td><td>{esc(r['address'])}, {esc(r['city'])}</td><td>{esc(r['landlord_name'])}</td>"
+        f"<td>{esc(r['lease_end'])}</td><td><a class='btn' href='/leases/{r['id']}/renewal'>Landlord message</a> "
+        f"<a href='/leases/{r['id']}'>Details</a> · <a href='/leases/{r['id']}/lease' target='_blank'>Lease sheet</a></td></tr>"
+        for r in rows)
+    months = int(load_settings().get("followup_months_before_end", 6))
+    body = f"""<h1>Lease renewal tracker</h1>
+<p class="lede">{len(rows)} lease{'s' if len(rows) != 1 else ''} tracked, {due} to call now. Each lease gets a renewal call
+{months} months before it ends, when the landlord's notice window opens. <b>Landlord message</b> has the message ready
+to send. <a href="/leases.csv">Download CSV</a></p>
+<table><tr><th></th><th>Renewal call</th><th>Property</th><th>Landlord</th><th>Lease ends</th><th></th></tr>{trs}</table>
+<p class="muted">Only leases entered with <a href="/leases/new">New lease</a> are here. Past landlords from before the
+tracker existed need their lease end dates first (see docs/next-steps.md, engine 3).</p>"""
+    return page("Lease renewal tracker", body, "leases")
+
+
+def renewal_page(r, settings, lang="fr"):
+    msg = leases.renewal_message(r, settings, lang)
+    mailto = "mailto:" + urllib.parse.quote(msg["to"]) + "?" + urllib.parse.urlencode(
+        {"subject": msg["subject"], "body": msg["body"]}, quote_via=urllib.parse.quote)
+    other = "en" if lang == "fr" else "fr"
+    opens, closes = leases.renewal_window(leases._d(r["lease_start"]), leases._d(r["lease_end"]))
+    send = (f'<a class="btn primary" href="{esc(mailto)}">Open in my mail app</a>' if msg["to"]
+            else '<span class="muted">No landlord email on file: copy the text, or call.</span>')
+    body = f"""<h1>Renewal: {esc(r['address'])}</h1>
+<p class="lede">Landlord {esc(r['landlord_name'])} {esc(r.get('landlord_phone', ''))} · lease ends {esc(r['lease_end'])} ·
+notice window {opens} to {closes} · {STATUS_LABEL[leases.renewal_status(r)]}</p>
+<p>{send} <button class="btn" data-copy="#renewalmsg">Copy text</button>
+ <a class="btn" href="/leases/{r['id']}/renewal?lang={other}">{'English' if other == 'en' else 'Français'}</a></p>
+<div class="muted">To: {esc(msg['to']) or '—'} · Subject: {esc(msg['subject'])}</div>
+<pre id="renewalmsg">{esc(msg['body'])}</pre>
+<p class="muted">This message goes to the landlord only. The notice to the tenant is a separate step whose process
+still needs settling (format, who sends it, tacit renewal): see docs/next-steps.md.</p>
+<p><a href="/leases">Back to the tracker</a></p>
+<script src="/ui/copy.js"></script>"""
+    return page("Renewal message", body, "leases")
 
 
 def lease_page(r):
     secs = "".join(
         f"<section><h2>{esc(t)}</h2><table>" +
         "".join(f"<tr><th>{esc(l)}</th><td>{esc(v) or '<span class=blank>________________</span>'}</td></tr>" for l, v in rows) +
-        "</table></section>" for t, rows in rentals.lease_sheet(r))
+        "</table></section>" for t, rows in leases.lease_sheet(r))
     body = f"""<div class="print"><h1>Lease prep sheet</h1>
 <p class="muted">{esc(r['address'])}, {esc(r['city'])} · Prepared {esc(r['created_at'][:10])}.
 Copy each value into the matching section of the official TAL lease form (the form is mandatory in Québec;
 check the section letters against the edition you use). Blank lines still need an answer.</p>
 {secs}<button class="btn noprint" onclick="print()">Print</button></div>"""
-    return page("Lease sheet", body, "rentals")
+    return page("Lease sheet", body, "leases")
 
 
 def stats_page(conn):
@@ -334,32 +371,39 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"counts": lead_counts(conn), "today": today_counts(conn)})
             if path == "/api/leads":
                 return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0]))
-            if path == "/rentals/new":
-                return self._send(200, rental_form())
-            if path == "/rentals":
-                return self._send(200, rentals_list(conn))
-            if path == "/rentals.csv":
-                rows = rentals.export_rows(conn)
+            if path == "/rentals" or path.startswith("/rentals/") or path == "/rentals.csv":
+                # Old links (bookmarks, the boot page, the launcher) keep working after the rename.
+                new = "/leases" + path[len("/rentals"):]
+                return self._send(301, "", headers={"Location": new + (("?" + url.query) if url.query else "")})
+            if path == "/leases/new":
+                return self._send(200, lease_form())
+            if path == "/leases":
+                return self._send(200, tracker_page(conn))
+            if path == "/leases.csv":
+                rows = leases.export_rows(conn)
                 buf = io.StringIO()
-                w = csv.DictWriter(buf, fieldnames=["id", "created_at", "followup_date"] + rentals.FIELD_KEYS, extrasaction="ignore")
+                w = csv.DictWriter(buf, fieldnames=["id", "created_at", "followup_date"] + leases.FIELD_KEYS, extrasaction="ignore")
                 w.writeheader()
                 w.writerows(rows)
                 return self._send(200, buf.getvalue(), "text/csv; charset=utf-8",
-                                  {"Content-Disposition": "attachment; filename=rentals.csv"})
+                                  {"Content-Disposition": "attachment; filename=leases.csv"})
             if path == "/stats":
                 return self._send(200, stats_page(conn))
             parts = path.strip("/").split("/")
-            if len(parts) >= 2 and parts[0] == "rentals" and parts[1].isdigit():
-                r = rentals.get(conn, int(parts[1]))
+            if len(parts) >= 2 and parts[0] == "leases" and parts[1].isdigit():
+                r = leases.get(conn, int(parts[1]))
                 if not r:
                     return self._send(404, page("Not found", "<h1>Not found</h1>"))
                 if len(parts) == 2:
-                    return self._send(200, rental_done(r, settings))
+                    return self._send(200, lease_done(r, settings))
                 if parts[2] == "followup.ics":
-                    return self._send(200, rentals.followup_ics(r), "text/calendar; charset=utf-8",
+                    return self._send(200, leases.followup_ics(r), "text/calendar; charset=utf-8",
                                       {"Content-Disposition": f"attachment; filename=renewal-call-{r['id']}.ics"})
                 if parts[2] == "lease":
                     return self._send(200, lease_page(r))
+                if parts[2] == "renewal":
+                    lang = (qs.get("lang") or ["fr"])[0]
+                    return self._send(200, renewal_page(r, settings, "en" if lang == "en" else "fr"))
             return self._send(404, page("Not found", "<h1>Not found</h1>"))
         finally:
             conn.close()
@@ -382,12 +426,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"id": lid, "bucket": r["bucket"] if r else ""})
             if path == "/api/recheck":
                 return self._json(dict(feed.recheck_all(conn)))
-            if path == "/rentals/new":
-                errors = rentals.validate(body)
+            if path in ("/leases/new", "/rentals/new"):
+                errors = leases.validate(body)
                 if errors:
-                    return self._send(400, rental_form(body, errors))
-                rid = rentals.save(conn, body)
-                return self._send(303, "", headers={"Location": f"/rentals/{rid}"})
+                    return self._send(400, lease_form(body, errors))
+                rid = leases.save(conn, body)
+                return self._send(303, "", headers={"Location": f"/leases/{rid}"})
             return self._json({"error": "not found"}, 404)
         finally:
             conn.close()

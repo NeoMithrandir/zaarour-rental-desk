@@ -1,0 +1,10 @@
+Hi {landlord_name},
+
+The lease for your unit at {address} ends on {lease_end}. If you want to change it (a rent increase or anything else), the notice has to reach the tenant between {window_opens} and {window_closes}.
+
+I can take care of it for you: work out an increase with the Tribunal administratif du logement's calculator, prepare the notice and follow up on the tenant's answer. And if the tenant doesn't renew, we already have the photos and your file, so we can put the unit back on the market right away.
+
+Would you like to talk about it this week?
+
+{agent_name}
+{agent_phone}

@@ -12,7 +12,7 @@ Stefan's daily tool for the 2027 rental plan ([plan](../docs/2027-growth-action-
 | 1.8 Property managers | Kept, tagged, shown after owners. All ads from one poster collapse into one card (on Craigslist, which has no poster ids, identical titles count as one poster), so a manager with 8 ads gets one message. |
 | 1.9 Geography | Phase 1 areas sort to the top; phase 2 areas carry a "Phase 2" tag, and a filter at the top shows one phase at a time. |
 | 1.10 Second touch | The **Sent** tab has a short follow-up message ready for non-responders. |
-| E.1 Tanya form | One form per signed lease: opens the email to Tanya in your mail app, downloads a calendar event for the renewal call 6 months before the lease ends, and saves the lease end date (the data engine 3 needs). |
+| E.1 Lease renewal tracker | **New lease** (one form per signed lease) opens the lease-details email to the office in your mail app, downloads a calendar event for the renewal call 6 months before the lease ends, and saves the lease. **Renewals** lists every saved lease by renewal call date ("Call now" within two weeks) with a ready FR/EN message to the landlord: the notice window dates and an offer to handle the increase, the notice and a re-listing. |
 | E.2 Leases | A printable lease prep sheet laid out by the sections of the mandatory TAL lease form, filled from the same form. |
 | Scorecard | Surfaced, sent, rejected, replied, presentations and signed listings per source per week. |
 
@@ -21,7 +21,7 @@ Stefan's daily tool for the 2027 rental plan ([plan](../docs/2027-growth-action-
 Once:
 
 1. Install Python 3 (already on this Mac).
-2. Copy `config/settings.example.json` to `config/settings.json` and fill in Stefan's phone, email, Tanya's email and the rental page link.
+2. Copy `config/settings.example.json` to `config/settings.json` and fill in Stefan's phone and email, the office email for lease paperwork (`office_email`) and the rental page link.
 
 Every morning: double-click **`morning.command`**. It fetches today's ads (about a minute), then opens the review screen in the browser. Then:
 
@@ -40,7 +40,7 @@ python3 -m desk morning
 
 Other commands: `python3 -m desk fetch` (fetch only), `python3 -m desk serve` (screen only),
 `python3 -m desk recheck` (re-run checks after editing brokers or loading a Centris export),
-`python3 -m desk export-rentals` (rentals to CSV).
+`python3 -m desk export-leases` (the renewal tracker to CSV).
 
 ## Tuning
 

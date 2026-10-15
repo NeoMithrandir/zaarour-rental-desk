@@ -1,6 +1,6 @@
-// New rental form: section ticks, required fields left, 12-month lease end, renewal-call preview.
+// New lease form: section ticks, required fields left, 12-month lease end, renewal-call preview.
 (function () {
-  const form = document.getElementById("rentalform");
+  const form = document.getElementById("leaseform");
   if (!form) return;
   const months = +form.dataset.months || 6;
   const left = document.getElementById("left"), renewal = document.getElementById("renewal");
@@ -23,7 +23,7 @@
     });
     const s = parse(start.value), e = parse(end.value);
     if (s && e && e > s) {
-      // Mirrors rentals.followup_date for the usual 12-month lease; the saved date is the one that counts.
+      // Mirrors leases.followup_date for the usual 12-month lease; the saved date is the one that counts.
       const leaseMonths = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + e.getUTCMonth() - s.getUTCMonth() + (e.getUTCDate() >= s.getUTCDate() - 1 ? 1 : 0);
       renewal.textContent = leaseMonths >= 12 ? `Renewal call: ${iso(addMonths(e, -months))}` : "Short lease: renewal call when the notice window opens";
     } else renewal.textContent = e && s ? "Lease end must be after the start" : "";

@@ -1,7 +1,7 @@
-"""Rental intake (plan items E.1 and E.2).
+"""Lease renewal tracker (plan items E.1 and E.2, and the data engine 3 needs).
 
-One form per rented unit replaces the hand-written email to Tanya. Saving it:
-  1. builds the email to Tanya (opened in Stefan's mail app; nothing is sent automatically),
+One form per signed lease replaces the hand-written email to the office. Saving it:
+  1. builds the email to the office (opened in Stefan's mail app; nothing is sent automatically),
   2. builds a calendar file for Stefan's renewal call, 6 months before the lease ends,
   3. builds a lease prep sheet that follows the sections of the mandatory TAL lease form,
   4. keeps the record, which starts the clean lease end-date list engine 3 needs.
@@ -10,7 +10,7 @@ import json
 from datetime import date, datetime, timedelta
 
 from . import db
-from .config import load_settings
+from .config import TEMPLATE_DIR, load_settings
 
 # (key, label, kind, required, section). kind: text, email, tel, date, money, number, textarea, check, select:a|b
 FIELDS = [
@@ -55,7 +55,7 @@ FIELDS = [
     ("co_broker", "Other broker / agency", "text", False, "Deal"),
     ("photographer", "Photography to pay", "check", False, "Deal"),
     ("lead_source", "Where the landlord came from", "select:Kijiji|Facebook Marketplace|Ads|Repeat client|Referral|Centris|Other", False, "Deal"),
-    ("notes_for_tanya", "Notes for Tanya", "textarea", False, "Deal"),
+    ("notes_for_office", "Notes for the office (lease paperwork)", "textarea", False, "Deal"),
 ]
 FIELD_KEYS = [f[0] for f in FIELDS]
 REQUIRED = [f[0] for f in FIELDS if f[3]]
@@ -124,11 +124,18 @@ def save(conn, form, settings=None):
     return cur.lastrowid
 
 
+def _upgrade(d):
+    """Leases saved before the rename kept their notes under the old key."""
+    if "notes_for_tanya" in d:
+        d.setdefault("notes_for_office", d.pop("notes_for_tanya"))
+    return d
+
+
 def get(conn, rid):
     r = conn.execute("SELECT * FROM rentals WHERE id=?", (rid,)).fetchone()
     if not r:
         return None
-    d = json.loads(r["data"])
+    d = _upgrade(json.loads(r["data"]))
     d.update({"id": r["id"], "created_at": r["created_at"], "followup_date": r["followup_date"]})
     return d
 
@@ -137,14 +144,14 @@ def _yes(v):
     return "Yes" if v in (True, "on", "1", "yes", "Yes") else "No"
 
 
-def tanya_email(r, settings=None):
+def office_email(r, settings=None):
     settings = settings or load_settings()
     agent = settings.get("agent", {})
     start, end = _d(r["lease_start"]), _d(r["lease_end"])
     opens, closes = renewal_window(start, end)
     subject = f"Nouvelle location / New rental: {r['address']}, {r['city']} ({r['lease_start']})"
     lines = [
-        "Bonjour Tanya,",
+        "Bonjour,",
         "",
         "Voici une nouvelle location à préparer. / Here is a new rental to prepare.",
         "",
@@ -163,11 +170,11 @@ def tanya_email(r, settings=None):
         f"Commission: ${r.get('commission') or '?'} | Double end: {_yes(r.get('double_ended'))} | Co-broker: {r.get('co_broker') or 'none'}",
         f"Photography to pay: {_yes(r.get('photographer'))} | Lead source: {r.get('lead_source') or '?'}",
     ]
-    if r.get("notes_for_tanya"):
-        lines += ["", "Notes:", r["notes_for_tanya"]]
+    if r.get("notes_for_office"):
+        lines += ["", "Notes:", r["notes_for_office"]]
     lines += ["", f"Renewal call booked for {r['followup_date']} (notice window {opens} to {closes}).",
               "", "Merci,", agent.get("name", "")]
-    return {"to": settings.get("tanya_email", ""), "subject": subject, "body": "\n".join(lines)}
+    return {"to": settings.get("office_email") or settings.get("tanya_email", ""), "subject": subject, "body": "\n".join(lines)}
 
 
 def _ics_escape(s):
@@ -197,7 +204,7 @@ def followup_ics(r):
         "END:VEVENT", "END:VCALENDAR", ""])
 
 
-# Sections of the mandatory TAL lease form ("Bail de logement"), so Tanya can copy field by field.
+# Sections of the mandatory TAL lease form ("Bail de logement"), so the office can copy field by field.
 LEASE_SECTIONS = [
     ("A. Parties (lessor / lessee)", ["landlord_name", "landlord_address", "landlord_phone", "landlord_email",
                                        "tenant_names", "tenant_current_address", "tenant_phone", "tenant_email"]),
@@ -236,7 +243,40 @@ def export_rows(conn):
     """All rentals entered so far, flattened (the start of engine 3's lease end-date list)."""
     rows = []
     for r in conn.execute("SELECT * FROM rentals ORDER BY lease_end"):
-        d = json.loads(r["data"])
+        d = _upgrade(json.loads(r["data"]))
         d.update({"id": r["id"], "created_at": r["created_at"], "followup_date": r["followup_date"]})
         rows.append(d)
     return rows
+
+
+# -- renewals --------------------------------------------------------------------------
+DUE_SOON_DAYS = 14
+
+
+def renewal_status(r, today=None):
+    """'due' when the renewal call is today, overdue or within two weeks; 'upcoming' before that;
+    'ended' once the lease end has passed."""
+    today = today or date.today()
+    if _d(r["lease_end"]) < today:
+        return "ended"
+    if _d(r["followup_date"]) <= today + timedelta(days=DUE_SOON_DAYS):
+        return "due"
+    return "upcoming"
+
+
+def renewal_message(r, settings=None, lang="fr"):
+    """The message Stefan sends the landlord at the renewal call date (FR or EN)."""
+    settings = settings or load_settings()
+    agent = settings.get("agent", {})
+    opens, closes = renewal_window(_d(r["lease_start"]), _d(r["lease_end"]))
+    with open(TEMPLATE_DIR / f"renewal_landlord_{lang}.txt", encoding="utf-8") as f:
+        body = f.read().strip()
+    first = (r.get("landlord_name") or "").split(" ")[0].strip(",") if lang == "en" else (r.get("landlord_name") or "")
+    body = body.format_map({
+        "landlord_name": first or ("Madame, Monsieur" if lang == "fr" else "there"),
+        "address": r["address"] + (f", {r['city']}" if r.get("city") else ""),
+        "lease_end": r["lease_end"], "window_opens": opens.isoformat(), "window_closes": closes.isoformat(),
+        "agent_name": agent.get("name", ""), "agent_phone": agent.get("phone", ""),
+    })
+    subject = (f"Renouvellement du bail : {r['address']}" if lang == "fr" else f"Lease renewal: {r['address']}")
+    return {"to": r.get("landlord_email", ""), "subject": subject, "body": body}

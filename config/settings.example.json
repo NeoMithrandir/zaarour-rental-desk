@@ -11,7 +11,7 @@
     "rental_page_url": "https://zaarour.ca/location"
   },
 
-  "tanya_email": "tanya@zaarour.ca",
+  "office_email": "office@zaarour.ca",
   "followup_months_before_end": 6,
 
   "message_char_limit": 1000,

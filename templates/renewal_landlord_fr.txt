@@ -1,0 +1,10 @@
+Bonjour {landlord_name},
+
+Le bail de votre logement au {address} se termine le {lease_end}. Si vous voulez le modifier (augmentation de loyer ou autre changement), l'avis doit être remis au locataire entre le {window_opens} et le {window_closes}.
+
+Je peux m'en occuper pour vous : calculer une augmentation avec l'outil du Tribunal administratif du logement, préparer l'avis et suivre la réponse du locataire. Et si le locataire ne renouvelle pas, nous avons déjà les photos et votre dossier, donc on peut remettre le logement en location tout de suite.
+
+Voulez-vous qu'on en parle cette semaine ?
+
+{agent_name}
+{agent_phone}

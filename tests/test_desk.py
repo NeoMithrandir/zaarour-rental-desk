@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import db, feed, outreach, rentals  # noqa: E402
+from desk import db, feed, leases, outreach  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
@@ -180,31 +180,38 @@ class RentalTests(unittest.TestCase):
             "tenant_names": "Marie Locataire", "lease_start": "2026-11-01", "lease_end": "2027-10-31", "rent": "1650"}
 
     def test_window_and_followup(self):
-        opens, closes = rentals.renewal_window(date(2026, 11, 1), date(2027, 10, 31))
+        opens, closes = leases.renewal_window(date(2026, 11, 1), date(2027, 10, 31))
         self.assertEqual((opens, closes), (date(2027, 4, 30), date(2027, 7, 31)))
-        self.assertEqual(rentals.followup_date(self.FORM, today=date(2026, 10, 15)), date(2027, 4, 30))
+        self.assertEqual(leases.followup_date(self.FORM, today=date(2026, 10, 15)), date(2027, 4, 30))
         short = dict(self.FORM, lease_end="2027-04-30")  # 6-month lease: 1-2 month window
-        self.assertEqual(rentals.followup_date(short, today=date(2026, 10, 15)), date(2027, 2, 28))
+        self.assertEqual(leases.followup_date(short, today=date(2026, 10, 15)), date(2027, 2, 28))
 
     def test_validate(self):
-        self.assertEqual(rentals.validate(self.FORM), [])
-        self.assertTrue(rentals.validate(dict(self.FORM, lease_end="2026-10-01")))
-        self.assertTrue(rentals.validate({}))
+        self.assertEqual(leases.validate(self.FORM), [])
+        self.assertTrue(leases.validate(dict(self.FORM, lease_end="2026-10-01")))
+        self.assertTrue(leases.validate({}))
 
     def test_save_email_ics_sheet(self):
         with tempfile.TemporaryDirectory() as d:
             conn = db.connect(Path(d) / "t.sqlite3")
-            rid = rentals.save(conn, self.FORM)
-            r = rentals.get(conn, rid)
-            mail = rentals.tanya_email(r)
+            rid = leases.save(conn, self.FORM)
+            r = leases.get(conn, rid)
+            mail = leases.office_email(r)
             self.assertIn("Marie Locataire", mail["body"])
             self.assertIn(r["followup_date"], mail["body"])
-            ics = rentals.followup_ics(r)
+            ics = leases.followup_ics(r)
             self.assertIn("BEGIN:VEVENT", ics)
             self.assertIn("DTSTART;VALUE=DATE:" + r["followup_date"].replace("-", ""), ics)
-            titles = [t for t, _rows in rentals.lease_sheet(r)]
+            titles = [t for t, _rows in leases.lease_sheet(r)]
             self.assertTrue(titles[0].startswith("A."))
-            self.assertEqual(len(rentals.export_rows(conn)), 1)
+            self.assertEqual(len(leases.export_rows(conn)), 1)
+            msg = leases.renewal_message(r, lang="fr")
+            self.assertIn("2027-04-30", msg["body"])          # notice window opens
+            self.assertIn("Jean Proprio", msg["body"])
+            self.assertIn("Jean", leases.renewal_message(r, lang="en")["body"])
+            self.assertEqual(leases.renewal_status(r, today=date(2026, 10, 15)), "upcoming")
+            self.assertEqual(leases.renewal_status(r, today=date(2027, 4, 20)), "due")
+            self.assertEqual(leases.renewal_status(r, today=date(2027, 11, 1)), "ended")
             conn.close()
 
 

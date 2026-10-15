@@ -1,4 +1,4 @@
-"""SQLite storage: leads seen, Stefan's decisions, and rentals entered through the Tanya form."""
+"""SQLite storage: leads seen, Stefan's decisions, and leases in the renewal tracker (table "rentals")."""
 import json
 import sqlite3
 from datetime import datetime
