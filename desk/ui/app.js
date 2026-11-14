@@ -583,7 +583,7 @@
       scanTimer = setTimeout(pollScan, 3000);
       return;
     }
-    const read = (s.boards || []).filter((b) => b.last_ok).map((b) => `${NAMES[b.source] || b.source} ${ago(b.last_ok)}`);
+    const read = (s.boards || []).filter((b) => b.last_ok && !b.waiting).map((b) => `${NAMES[b.source] || b.source} ${ago(b.last_ok)}`);
     const failed = (s.boards || []).filter((b) => b.last_error).map((b) => NAMES[b.source] || b.source);
     bar.textContent = (read.length ? `Boards last read: ${read.join(", ")}.` : "") + (failed.length ? ` Couldn't read ${failed.join(", ")} last time.` : "");
     bar.hidden = !bar.textContent;

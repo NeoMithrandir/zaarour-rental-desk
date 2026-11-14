@@ -199,6 +199,7 @@ class PoliteFetcher:
                 pass
         self._last = {}       # host -> time of last request
         self._robots = {}     # host -> Robots
+        self.host_min_interval = {}  # host -> seconds, from that board's written permission
         self.requests = 0
         self.not_modified = 0
 
@@ -264,7 +265,7 @@ class PoliteFetcher:
         robots = self.robots(host, u.scheme or "https")
         if not robots.allowed(url):
             raise Disallowed(f"robots.txt on {host} asks robots not to read {u.path}{'?' + u.query if u.query else ''}")
-        delay = max(self.min_interval, robots.crawl_delay or 0)
+        delay = max(self.min_interval, robots.crawl_delay or 0, self.host_min_interval.get(host, 0))
         page = self.state["pages"].get(url, {})
         extra = {}
         if conditional and page.get("etag"):

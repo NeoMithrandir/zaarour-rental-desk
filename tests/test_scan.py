@@ -130,6 +130,7 @@ class ScanTests(unittest.TestCase):
         self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
         self.settings = load_settings()
         self.settings["sources"] = ["kijiji"]
+        self.settings["permissions"] = {"kijiji": {"scan_enabled": True, "letter": "letters/kijiji.pdf"}}
         self.settings["kijiji"] = {"max_pages_per_search": 5,
                                    "searches": [{"name": "Island", "slug": "ville-de-montreal", "location_id": 1700281}]}
 
@@ -164,6 +165,33 @@ class ScanTests(unittest.TestCase):
         scan.run(self.conn, self.settings, log=logs.append, fetcher=fetcher_for(web))
         self.assertTrue(any("refused" in l for l in logs))
         self.assertEqual(scan.due(self.conn, self.settings), ["kijiji"])  # a failed read isn't a fresh one
+
+
+    def test_no_board_is_read_without_written_permission(self):
+        web = FakeWeb({})
+        logs = []
+        defaults = load_settings()  # as shipped: every scanner off
+        self.assertEqual(scan.due(self.conn, defaults), ["alerts"])
+        for p in ({}, {"scan_enabled": True}, {"scan_enabled": False, "letter": "x.pdf"},
+                  {"scan_enabled": True, "letter": "x.pdf", "expires": "2020-01-01"}):
+            self.settings["permissions"] = {"kijiji": p}
+            c = scan.run(self.conn, self.settings, log=logs.append, fetcher=fetcher_for(web))
+            self.assertEqual((c["boards_read"], web.asked), (0, []))
+        self.assertTrue(any("written permission" in l for l in logs))
+        self.assertIn("expired", scan.board_status(self.conn, self.settings)[0]["waiting"])
+
+    def test_limits_from_the_permission_are_kept(self):
+        pages = {self.url(i): (200, {}, page_html([ad(i * 10 + j, f"4 1/2 Lachine {i}{j}", "Lachine, QC H8S 1A1",
+                                                      poster=f"p{i}{j}") for j in range(3)])) for i in range(1, 6)}
+        web = FakeWeb(pages)
+        self.settings["permissions"]["kijiji"].update(max_requests_per_hour=3, min_interval_seconds=20)
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(len([u for u, _h in web.asked if "robots" not in u]), 3)  # capped at 3 pages
+        self.assertTrue(all(s >= 20 for s in web.slept))  # the letter's spacing, not the default 6 s
+        # The hour's allowance is used up: forcing a read asks nothing more.
+        web.asked.clear()
+        scan.run(self.conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(web.asked, [])
 
 
 ALERT = """From: Kijiji <alerts@kijiji.ca>
