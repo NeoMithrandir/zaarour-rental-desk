@@ -21,8 +21,8 @@ There are three legitimate routes in:
 | Rentals.ca | Most pages allowed; `*-feed.json/xml` disallowed. Pages sit behind a bot challenge. | Not checked. | Email alerts from a saved search (to confirm the board offers them) + capture button. |
 | PadMapper / Zumper | `/api` and `/map` disallowed, Crawl-delay 5. Bot checks. | Not checked. | Their saved-search email alerts + capture button. |
 | Facebook Marketplace and groups | n/a (login wall). | Automated collection forbidden. No public API to read listings: Meta's Marketplace partner APIs are for posting inventory, and the Groups API is retired. | **Capture button only.** |
-| Appartogo | Most pages allowed; AI crawlers named and blocked. | Not checked. | Capture button (and its alerts, if offered). |
-| LesPAC | Most pages allowed; ads rendered in the browser. | Not checked. | LesPAC alert emails + capture button. |
-| Louer.ca | All allowed; publishes a sitemap. Ads rendered in the browser. | Not checked. | Capture button. Its sitemap could become a read-by-the-desk route if its terms allow it: **to confirm** first. |
+| Appartogo | Most pages allowed; `/recherche`, `/en/search`, `/search/markers` and `/listing/card` disallowed; AI crawlers named and blocked (the desk is not one of them). Region pages carry every card in the HTML. | Not checked. | **Scanner built** (`desk/sources/appartogo.py`): region pages only, off until permission is on file. Capture button meanwhile. |
+| LesPAC | Most pages allowed. The list is drawn in the browser, but the page carries its data (`var searchResponse`). | Not checked. | **Scanner built** (`desk/sources/lespac.py`): page 1 of rentals, newest first, off until permission is on file. Alert emails + capture button meanwhile. |
+| Louer.ca | All allowed; publishes a sitemap. Run by Rentals.ca. Pages are an empty app shell: ads come only from its GraphQL API, which first hands out a sign-in token. | Not checked. | Capture button. A scanner needs Louer.ca to issue the desk its own API key or feed (see SCANNER-LAUNCH.md). |
 
 "To confirm" items need a person to read the board's terms page (or ask the board); the desk keeps working without them.

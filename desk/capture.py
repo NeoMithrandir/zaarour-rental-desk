@@ -48,6 +48,14 @@ def canonical_id(url, source=None):
             return f"logisquebec:{m.group(1)}"
     if source == "livrent" and "/building/" in path:
         return f"livrent:{path.split('/building/')[-1].split('/')[0]}"
+    if source == "appartogo":
+        m = re.search(r"/(\d+)$", path)
+        if m:
+            return f"appartogo:{m.group(1)}"
+    if source == "lespac":
+        m = re.search(r"_(\d+)D\d+\.jsa$", path)
+        if m:
+            return f"lespac:{m.group(1)}"
     if source == "facebook":
         m = re.search(r"/marketplace/item/(\d+)", path)
         if m:

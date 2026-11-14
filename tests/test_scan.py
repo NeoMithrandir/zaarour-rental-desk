@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from desk import alerts, capture, db, feed, learn, scan  # noqa: E402
 from desk.checks import Checker  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
-from desk.sources import http, kijiji  # noqa: E402
-from tests.test_desk import FIXTURE, ad, page_html  # noqa: E402
+from desk.sources import appartogo, http, kijiji, lespac  # noqa: E402
+from tests.test_desk import FIXTURE, BoardTests, ad, page_html  # noqa: E402
 
 KIJIJI_ROBOTS = """User-Agent: Mediapartners-Google
 Disallow: /j-contact-seller.json*
@@ -192,6 +192,23 @@ class ScanTests(unittest.TestCase):
         web.asked.clear()
         scan.run(self.conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(web))
         self.assertEqual(web.asked, [])
+
+    def test_lespac_and_appartogo_read_newest_first_at_the_letters_pace(self):
+        self.settings["sources"] = ["lespac", "appartogo"]
+        self.settings["appartogo"] = {"categories": ["appartement-louer"], "regions": ["ile-de-montreal"], "pages_per_region": 3}
+        limits = {"scan_enabled": True, "letter": "letters/x.pdf", "min_interval_seconds": 30}
+        self.settings["permissions"] = {"lespac": dict(limits), "appartogo": dict(limits)}
+        a1, a2 = (appartogo.page_url("appartement-louer", "ile-de-montreal", n) for n in (1, 2))
+        web = FakeWeb({lespac.URL: (200, {}, BoardTests.LESPAC), a1: (200, {}, BoardTests.APPARTOGO),
+                       a2: (200, {}, BoardTests.APPARTOGO)}, robots="User-agent: *\nDisallow: /recherche\n")
+        c = scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(c["boards_read"], 2)
+        asked = [(u, h) for u, h in web.asked if "robots" not in u]
+        self.assertEqual([u for u, _h in asked], [lespac.URL, a1, a2])  # page 2 had nothing new: stop
+        self.assertEqual(asked[0][1].get("Cookie"), "searchSortOrder=Date+desc")
+        self.assertTrue(all(s >= 30 for s in web.slept))
+        ids = {r[0] for r in self.conn.execute("SELECT id FROM leads")}
+        self.assertTrue({"lespac:228047031", "appartogo:3385138", "appartogo:7"} <= ids)
 
 
 ALERT = """From: Kijiji <alerts@kijiji.ca>

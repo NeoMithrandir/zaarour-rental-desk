@@ -258,7 +258,8 @@ class PoliteFetcher:
         return r
 
     # -- the request
-    def __call__(self, url, conditional=True):
+    def __call__(self, url, conditional=True, headers=None):
+        """GET one page. `headers` adds request headers a board needs (e.g. LesPAC's sort-order cookie)."""
         u = urllib.parse.urlsplit(url)
         host = u.netloc.lower()
         self._check_cooling(host)
@@ -267,7 +268,7 @@ class PoliteFetcher:
             raise Disallowed(f"robots.txt on {host} asks robots not to read {u.path}{'?' + u.query if u.query else ''}")
         delay = max(self.min_interval, robots.crawl_delay or 0, self.host_min_interval.get(host, 0))
         page = self.state["pages"].get(url, {})
-        extra = {}
+        extra = dict(headers or {})
         if conditional and page.get("etag"):
             extra["If-None-Match"] = page["etag"]
         if conditional and page.get("last_modified"):

@@ -9,10 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import db, feed, lease_import, lease_scan, leases, outreach, tal  # noqa: E402
+from desk import capture, db, feed, lease_import, lease_scan, leases, outreach, tal  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
-from desk.sources import craigslist, kijiji, logisquebec  # noqa: E402
+from desk.sources import appartogo, craigslist, kijiji, lespac, logisquebec  # noqa: E402
 from desk.sources.http import money  # noqa: E402
 from desk.text import address_key, city_of, postal_fsa  # noqa: E402
 
@@ -154,6 +154,40 @@ class BoardTests(unittest.TestCase):
         (l,) = logisquebec.parse(self.LOGIS)
         self.assertEqual((l["id"], l["price"], l["address"]), ("logisquebec:1", 1195, "Duffcourt, Lachine, QC"))
         self.assertEqual(l["lat"], "45.44")
+
+    APPARTOGO = """<div itemscope itemtype="https://schema.org/Product" class="listing listing-card" data-listing-id="3385138">
+        <a class="tile-link" href="/fr/appartement-louer/canada/quebec/ile-de-montreal/lachine/3385138">
+        <img fetchpriority="high" itemprop="image" class="img-fluid" src="https://cdn.appartogo.com/listings/t/1.jpg" />
+        <span itemprop="price" content="1400.0" class="h4">1&#xA0;400$</span>
+        <span class="pieces bedrooms" title="2 Chambres" aria-label="2 Chambres">2<i class="fa-solid fa-bed"></i></span>
+        <p class="listing-city">Lachine</p><h3 itemprop="name" class="card-title mt-2">Le Provost | 2710 Rue Provost, Montreal &#xB7; 2 ch.</h3></a></div>
+      <div itemscope itemtype="https://schema.org/Product" class="listing listing-card" data-listing-id="7">
+        <a class="tile-link" href="/fr/condo-louer/canada/quebec/laval/chomedey/7"><span itemprop="price" content="1650.0">
+        <p class="listing-city">Chomedey</p><h3 itemprop="name" class="card-title mt-2">4 1/2 au rez-de-chauss&#xE9;e</h3></a></div>"""
+    LESPAC = """<script>if (SearchApp) { var searchResponse = {"searchResults": [{"listingPublicId": "228047031",
+      "title": "4\u00bd lumineux \u2013 parc La Fontaine", "description": "**Chauff\u00e9** pr\u00e8s du parc", "price": 1650.0,
+      "publicReleaseTimestamp": 1794600000000, "mainImageUrl": "https://cdn.lespac.com/binary/zoomedGallery/1.jpg",
+      "listingDisplayUrl": "https://www.lespac.com/montreal/immobilier-location-logements/4-lumineux_228047031D0.jsa?searchCriteria=x",
+      "cityLabel": "Montr\u00e9al / Plateau Mont-Royal", "searchPageTrackingInfo": {"listing-advertiser-type": {"value": "INDIVIDUAL"},
+      "listing-dealerid": {"value": "884573488"}}}], "totalResults": 1};
+      SearchApp.initApp('searchAppContainer', {}, searchResponse, {}); }</script>"""
+
+    def test_appartogo(self):
+        a, b = appartogo.parse(self.APPARTOGO, "ile-de-montreal", "appartement-louer")
+        self.assertEqual((a["id"], a["price"], a["bedrooms"], a["address"], a["image"]),
+                         ("appartogo:3385138", 1400, "2", "2710 Rue Provost, Lachine, QC", "https://cdn.appartogo.com/listings/t/1.jpg"))
+        self.assertEqual(b["address"], "Chomedey, QC")  # no street number in the title: the area only
+        self.assertEqual(capture.canonical_id(a["url"]), a["id"])
+
+    def test_lespac(self):
+        (l,) = lespac.parse(self.LESPAC)
+        self.assertEqual((l["id"], l["price"], l["address"], l["poster_type"], l["poster_id"]),
+                         ("lespac:228047031", 1650, "Plateau Mont-Royal, Montréal, QC", "owner", "884573488"))
+        self.assertEqual(l["url"], "https://www.lespac.com/montreal/immobilier-location-logements/4-lumineux_228047031D0.jsa")
+        self.assertEqual(capture.canonical_id(l["url"]), l["id"])
+        self.assertNotIn("*", l["snippet"])
+        with self.assertRaises(ValueError):
+            lespac.parse("<html>no data</html>")
 
     def test_money(self):
         self.assertEqual([money("1 195$"), money("$1,200"), money("1 200,50 $"), money("")], [1195, 1200, 1200, None])

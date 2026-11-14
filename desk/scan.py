@@ -12,12 +12,14 @@ from datetime import date, datetime, timedelta
 from . import db
 from .sources import http
 
-DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440}
+DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360,
+                     "lespac": 180}
 # Boards the desk reads by itself. Each needs the board's written permission on file (settings `permissions`)
 # before it reads anything; the alert inbox only reads Stefan's own email, so it needs none.
-SCANNERS = ("kijiji", "craigslist", "logisquebec", "livrent")
+SCANNERS = ("kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac")
 HOSTS = {"kijiji": ["www.kijiji.ca"], "craigslist": ["montreal.craigslist.org"],
-         "logisquebec": ["www.logisquebec.com"], "livrent": ["liv.rent"]}
+         "logisquebec": ["www.logisquebec.com"], "livrent": ["liv.rent"],
+         "appartogo": ["appartogo.com"], "lespac": ["www.lespac.com"]}
 
 
 def permission(settings, source, today=None):

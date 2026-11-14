@@ -33,20 +33,22 @@
     ]
   },
 
-  "_sources_comment": "Routes the desk uses. 'alerts' reads Stefan's own saved-search emails and is always on. The four scanners (kijiji, craigslist, logisquebec, livrent) are listed here but read nothing until that board's entry under 'permissions' is turned on. Facebook, Rentals.ca, PadMapper/Zumper, Appartogo, LesPAC and Louer.ca have no scanner: email alerts where the board offers them, the capture button otherwise. See SCANNER-LAUNCH.md.",
-  "sources": ["kijiji", "craigslist", "logisquebec", "livrent", "alerts"],
+  "_sources_comment": "Routes the desk uses. 'alerts' reads Stefan's own saved-search emails and is always on. The six scanners (kijiji, craigslist, logisquebec, livrent, appartogo, lespac) are listed here but read nothing until that board's entry under 'permissions' is turned on. Facebook, Rentals.ca, PadMapper/Zumper and Louer.ca have no scanner: email alerts where the board offers them, the capture button otherwise. See SCANNER-LAUNCH.md.",
+  "sources": ["kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac", "alerts"],
 
   "_permissions_comment": "One entry per scanner. A board is read only when scan_enabled is true AND letter names the board's written permission (file path or email subject and date) AND expires (YYYY-MM-DD, optional) has not passed. Copy the limits the letter sets: max_requests_per_hour caps requests per board per hour, min_interval_seconds spaces requests to its site. Nesi turns scan_enabled on, in config/settings.json, once the letter is in. Never on before that.",
   "permissions": {
     "kijiji":      {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null},
     "craigslist":  {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null},
     "logisquebec": {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null},
-    "livrent":     {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null}
+    "livrent":     {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null},
+    "appartogo":   {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null},
+    "lespac":      {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null}
   },
 
   "scan": {
     "_comment": "A board is read again only when its last good read is older than its freshness window (minutes). Requests to one host are at least min_interval_seconds apart (more if robots.txt sets a Crawl-delay), plus up to jitter x that at random.",
-    "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "alerts": 30},
+    "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360, "lespac": 180, "alerts": 30},
     "auto_refresh_minutes": 60,
     "min_interval_seconds": 6,
     "jitter": 0.5,
@@ -66,5 +68,7 @@
 
   "craigslist": {"url": "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"},
   "logisquebec": {"regions": ["ile-de-montreal", "laval", "monteregie", "laurentides", "lanaudiere"], "pages_per_region": 3, "delay_seconds": 4},
-  "livrent": {"cities": ["montreal", "laval", "longueuil", "brossard"], "delay_seconds": 4}
+  "livrent": {"cities": ["montreal", "laval", "longueuil", "brossard"], "delay_seconds": 4},
+  "appartogo": {"categories": ["appartement-louer", "condo-louer"], "regions": ["ile-de-montreal", "laval", "monteregie"], "pages_per_region": 3},
+  "lespac": {"url": "https://www.lespac.com/montreal/immobilier-location-logements_b457g17567k1R2.jsa"}
 }
