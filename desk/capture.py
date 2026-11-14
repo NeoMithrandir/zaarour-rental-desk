@@ -66,8 +66,8 @@ def canonical_id(url, source=None):
     return f"{source or 'other'}:" + hashlib.sha1(clean.encode()).hexdigest()[:12]
 
 
-def bookmarklet(port=8765):
-    js = (UI_DIR / "capture-bookmarklet.js").read_text(encoding="utf-8")
+def bookmarklet(port=8765, name="capture-bookmarklet.js"):
+    js = (UI_DIR / name).read_text(encoding="utf-8")
     js = js.replace("__DESK__", f"http://127.0.0.1:{port}/capture")
     js = re.sub(r"^\s*//.*$", "", js, flags=re.M)
     js = re.sub(r"\s*\n\s*", " ", js).strip()
@@ -92,8 +92,20 @@ window with the ad filled in, you check it and click Add. It goes through the sa
 <b>Send to desk</b> on the bar. The desk has to be running.</li>
 </ol>
 <p class="muted">The button reads only the page you are looking at, only when you click it, and only what is on screen. It does not
-open other pages, sign in, or read your messages or contacts.</p>"""
-    return page("Capture button", body, "leads")
+open other pages, sign in, or read your messages or contacts.</p>
+
+<h2 id="fill">The Fill button</h2>
+<p class="lede">For sending. When you approve a message, the desk copies it and opens the ad. Open the board's message box
+(Send message, Contact, Reply), click <b>Fill from desk</b> on the bar, read the message, then click the board's own Send.</p>
+<ol class="steps">
+<li><strong>Drag this button onto the bar:</strong> <a class="btn primary" href="{fill}" onclick="event.preventDefault(); alert('Drag this button onto your bookmarks bar, then click it in a board\'s message box.');">Fill from desk</a></li>
+<li><strong>On the ad</strong>, signed in to the board as yourself, open its message box and click <b>Fill from desk</b>. It fills
+the message, and your name, email and phone where the form asks for them and they're empty.</li>
+<li><strong>Read it and click the board's Send.</strong> If the board asks for a CAPTCHA, answer it. Back on the desk, say whether it went.</li>
+</ol>
+<p class="muted">The Fill button never clicks Send and never signs in. It takes the message from the ad's address (the desk adds it
+after #, which stays in your browser), or from your clipboard if the board's sign-in page dropped it.</p>"""
+    return page("Browser buttons", body.replace("{fill}", bookmarklet(name="fill-bookmarklet.js")), "leads")
 
 
 def from_capture(data):

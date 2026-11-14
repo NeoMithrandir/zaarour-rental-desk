@@ -1,5 +1,6 @@
 // Stefan's morning review screen: one ad at a time (or a list with bulk actions), undo, and a To send queue.
-// Nothing is ever sent from here: Approve copies the message and opens the ad; Stefan sends it on the board.
+// Nothing is ever sent from here: Approve copies the message and opens the ad; Stefan sends it on the board,
+// where the "Fill from desk" bookmark puts the message in the board's own message box.
 (function () {
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
@@ -19,7 +20,7 @@
   // One at a time on a phone; the list with bulk actions is a desk thing.
   let view = matchMedia("(max-width: 640px)").matches ? "card" : store.get("view", "card");
   let rejecting = false, selected = new Set(), lastClicked = null, pendingSend = null;
-  const undoStack = [], edits = {};
+  const undoStack = [], edits = {}, drafting = {}, draftErr = {};
   const stage = $("#stage");
 
   // Landlords get discouraged after 2-3 weeks of few calls: an older ad is a warmer lead, not a stale one.
@@ -76,8 +77,10 @@
     const followup = tab === "sent";
     const e = edits[l.id] || {};
     const lang = e.lang || l.lang || "fr";
-    const base = followup ? l["followup_" + lang] : (tab === "approved" && l.message && !e.lang ? l.message : l["message_" + lang]);
-    return { lang, text: e[lang] != null ? e[lang] : base };
+    const custom = !followup && !e.template && l.drafts && l.drafts[lang];
+    const base = followup ? l["followup_" + lang] : (tab === "approved" && l.message && !e.lang ? l.message
+      : custom ? custom.text : l["message_" + lang]);
+    return { lang, text: e[lang] != null ? e[lang] : base, custom: !!custom && !(tab === "approved" && l.message && !e.lang) };
   }
 
   function flagsHTML(l) {
@@ -111,6 +114,26 @@
       <ul>${l.others.map((o) => `<li><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a> <span class="muted">${esc(o.address)} · ${money(o.price)}</span></li>`).join("")}</ul></details>`;
   }
 
+  const canDraft = () => data.drafting && data.drafting.on && !["sent", "approved"].includes(tab);
+
+  function draftLine(l, m) {
+    if (tab === "sent" || tab === "approved") return "";
+    const dr = data.drafting || {}, key = l.id + ":" + m.lang;
+    if (!dr.on) return `<p class="draftline muted" title="${esc(dr.problem || "")}">Standard template. Custom messages are off.</p>`;
+    if (drafting[key]) return `<p class="draftline busy">Writing a message for this ad in Stefan's style…</p>`;
+    if (draftErr[key]) return `<p class="draftline bad">${esc(draftErr[key])} <button class="linkish" data-draft="fresh">Try again</button></p>`;
+    const d = l.drafts && l.drafts[m.lang];
+    if (m.custom) return `<p class="draftline good">Written for this ad from ${dr.samples ? dr.samples + " sample message" + (dr.samples > 1 ? "s" : "") : "no samples yet"} (${esc(d.model)}).
+      <button class="linkish" data-draft="fresh" title="Write another (W)">Rewrite</button> · <button class="linkish" data-draft="template">Use the template</button></p>`;
+    return `<p class="draftline muted">Standard template. ${d ? `<button class="linkish" data-draft="custom">Use the custom message</button> · ` : ""}<button class="linkish" data-draft="${d ? "fresh" : "write"}" title="(W)">Write one for this ad</button>${dr.problem ? ` <span title="${esc(dr.problem)}">ⓘ</span>` : ""}</p>`;
+  }
+
+  function sendHint(l) {
+    const r = l.send || {};
+    const needs = (r.needs || []).length ? ` Needs: ${r.needs.join(", ")}.` : "";
+    return `On ${esc(r.name || "the board")}: ${esc(r.where || "its message box")}, click <b>Fill from desk</b>, read it, Send.${esc(needs)}`;
+  }
+
   function composer(l) {
     const m = msgFor(l);
     const title = tab === "sent" ? "Follow-up message" : "Message";
@@ -118,9 +141,57 @@
       <header><h3>${title}</h3>
         <div class="seg small" role="radiogroup" aria-label="Language">
           <button data-lang="fr" class="${m.lang === "fr" ? "on" : ""}">Français</button><button data-lang="en" class="${m.lang === "en" ? "on" : ""}">English</button></div></header>
+      ${draftLine(l, m)}
       <textarea spellcheck="true" aria-label="${title}">${esc(m.text)}</textarea>
-      <footer><span class="hint">${tab === "sent" ? "Copy it, then send it on the board." : "Approve copies this and opens the ad."} The broker disclaimer is always kept.</span><span class="count"></span></footer>
+      <footer><span class="hint">${tab === "sent" ? "Copy it, then send it on the board." : "Approve copies this and opens the ad. " + sendHint(l)} The broker disclaimer is always kept.</span><span class="count"></span></footer>
     </section>`;
+  }
+
+  // ------------------------------------------------------------ custom messages (drafts)
+  async function requestDraft(l, lang, fresh, quiet) {
+    const key = l.id + ":" + lang;
+    if (drafting[key]) return;
+    drafting[key] = true; delete draftErr[key];
+    if (!quiet) refreshComposer(l);
+    let res;
+    try {
+      res = await (await fetch("/api/lead/" + encodeURIComponent(l.id) + "/draft", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang, fresh: !!fresh }) })).json();
+    } catch (e) { res = { error: "The desk didn't answer. Is it still running?" }; }
+    delete drafting[key];
+    if (res.error) draftErr[key] = res.error;
+    else {
+      l.drafts = l.drafts || {};
+      l.drafts[lang] = { text: res.text, template: res.template, model: res.model };
+      const e = edits[l.id];
+      // A message Stefan has started editing is never replaced under his hands.
+      if (e && !fresh && (e[lang] != null || e.template)) { /* keep his edit or his choice of the template */ } else if (e) { delete e[lang]; delete e.template; }
+    }
+    refreshComposer(l);
+  }
+
+  function refreshComposer(l) {
+    if (!data || data.leads[cursor] !== l || !isTriage()) return;
+    const old = $(".composer", stage);
+    if (!old) return;
+    const focused = document.activeElement === $("textarea", old);
+    old.outerHTML = composer(l);
+    wireComposer(l, $(".composer", stage));
+    if (focused) $(".composer textarea", stage).focus();
+  }
+
+  function autoDraft(l) {
+    if (!canDraft() || !data.drafting.auto) return;
+    const lang = msgFor(l).lang, key = l.id + ":" + lang;
+    if (!(l.drafts && l.drafts[lang]) && !draftErr[key]) requestDraft(l, lang);
+    const nx = data.leads[cursor + 1];  // the next ad's message is ready when Stefan gets there
+    if (nx && !(nx.drafts && nx.drafts[nx.lang || "fr"])) requestDraft(nx, nx.lang || "fr", false, true);
+  }
+
+  // The ad opens with the message after #zdesk= (it stays in the browser), for the Fill from desk bookmark.
+  function openAd(l, text) {
+    const payload = encodeURIComponent(JSON.stringify({ m: text, ...(data.agent || {}) }));
+    window.open((l.url || "").split("#")[0] + "#zdesk=" + payload, "_blank", "noopener");
   }
 
   // ------------------------------------------------------------ one-at-a-time view
@@ -161,11 +232,12 @@
           <div class="ab-nav"><button class="icon" data-do="prev" aria-label="Previous (K)" title="Previous (K)">‹</button>
             <span>${(cursor + 1).toLocaleString("en-CA")} / ${n.toLocaleString("en-CA")}</span>
             <button class="icon" data-do="next" aria-label="Next (J)" title="Next (J)">›</button></div>
-          <button class="primary big" data-do="approve" title="Approve (A)">Approve: copy message, open ad <kbd>A</kbd></button>
+          <button class="primary big" data-do="approve" title="Approve (A)">Approve: open ad to send <kbd>A</kbd></button>
         </div>
         <div class="ab-reasons"><span class="q">Why reject?</span>${reasons}<button class="ghost" data-do="cancel">Cancel <kbd>Esc</kbd></button></div>
       </div>`;
     wireComposer(l, $(".composer", stage));
+    autoDraft(l);
     $$("[data-do]", stage).forEach((b) => b.addEventListener("click", () => cardAction(b.dataset.do)));
     $$("[data-reason]", stage).forEach((b) => b.addEventListener("click", () => act(l, { action: "reject", reason: b.dataset.reason })));
     swipe($("#leadcard"));
@@ -211,7 +283,7 @@
 
   // ------------------------------------------------------------ list view
   function rowActions(l) {
-    if (tab === "approved") return `<button data-r="reopen">Copy and open ad again</button><button data-r="sent" class="primary">Mark sent ✓</button><button data-r="back" class="ghost">Back to review</button>`;
+    if (tab === "approved") return `<button data-r="reopen" title="Copies the message and opens the ad, ready for Fill from desk">Open to send</button><button data-r="sent" class="primary">Mark sent ✓</button><button data-r="back" class="ghost">Back to review</button>`;
     if (tab === "sent") {
       return `<span class="muted small">Sent ${esc((l.sent_at || "").slice(0, 10))}</span>
         <div class="seg small outcome">${OUTCOMES.map(([k, v]) => `<button data-r="o:${k}" class="${l.outcome === k ? "on" : ""}">${v}</button>`).join("")}</div>
@@ -303,8 +375,9 @@
   async function rowAction(l, what, row) {
     if (what === "sent") return act(l, { action: "sent" });
     if (what === "reopen") {
-      const ok = await copy(l.message || l["message_" + (l.lang || "fr")]);
-      window.open(l.url, "_blank", "noopener");
+      const text = l.message || l["message_" + (l.lang || "fr")];
+      const ok = await copy(text);
+      openAd(l, text);
       pendingSend = { lead: l, at: Date.now() };
       return toast(ok ? "Message copied and ad opened." : "Ad opened, but the message couldn't be copied. Open the ad in To send again.");
     }
@@ -348,10 +421,11 @@
     count();
     ta.addEventListener("input", () => { const e = (edits[l.id] = edits[l.id] || {}); e.lang = e.lang || msgFor(l).lang; e[e.lang] = ta.value; count(); });
     $$("[data-lang]", el).forEach((b) => b.addEventListener("click", () => setLang(l, b.dataset.lang, el)));
+    $$("[data-draft]", el).forEach((b) => b.addEventListener("click", () => draftAction(l, b.dataset.draft)));
     if (tab === "sent") {
       const btn = document.createElement("button");
       btn.className = "primary"; btn.textContent = "Copy follow-up and open ad";
-      btn.addEventListener("click", async () => { const ok = await copy(ta.value); window.open(l.url, "_blank", "noopener"); toast(ok ? "Follow-up copied and ad opened." : "Couldn't copy: select the text and copy it by hand."); });
+      btn.addEventListener("click", async () => { const ok = await copy(ta.value); openAd(l, ta.value); toast(ok ? "Follow-up copied and ad opened." : "Couldn't copy: select the text and copy it by hand."); });
       $("footer", el).appendChild(btn);
     }
   }
@@ -359,10 +433,20 @@
   function setLang(l, lang, el) {
     const e = (edits[l.id] = edits[l.id] || {});
     e.lang = lang;
+    if (isTriage() && $(".composer", stage) === el) { refreshComposer(l); autoDraft(l); return; }
     const ta = $("textarea", el);
     ta.value = msgFor(l).text;
     $$("[data-lang]", el).forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
     ta.dispatchEvent(new Event("input"));
+  }
+
+  function draftAction(l, what) {
+    const lang = msgFor(l).lang, e = (edits[l.id] = edits[l.id] || {});
+    if (what === "template") { e.template = true; delete e[lang]; return refreshComposer(l); }
+    if (what === "custom") { delete e.template; delete e[lang]; return refreshComposer(l); }
+    if (e[lang] != null && !confirm("Replace your edits with a new message for this ad?")) return;
+    delete e.template; delete e[lang];
+    requestDraft(l, lang, what === "fresh");
   }
 
   // ------------------------------------------------------------ actions, undo
@@ -385,8 +469,8 @@
       if (ta) { ta.focus(); ta.select(); }
       return toast("The message couldn't be copied automatically. It's selected: press ⌘C first.", false, ["I copied it, open the ad", () => approve(l, true)]);
     }
-    window.open(l.url, "_blank", "noopener");
-    await act(l, { action: "approve", message: text }, "Approved. Message copied and ad opened: paste it, send it, then come back.");
+    openAd(l, text);
+    await act(l, { action: "approve", message: text }, "Approved. Ad opened: open its message box, click Fill from desk (or ⌘V), send it, then come back.");
     pendingSend = { lead: l, at: Date.now() };
   }
 
@@ -560,6 +644,7 @@
     if (k === "a" || k === "enter") { e.preventDefault(); return approve(l); }
     if (k === "r") { rejecting = true; return render(); }
     if (k === "l") return act(l, { action: tab === "later" ? "undo" : "later" });
+    if (k === "w" && canDraft()) return draftAction(l, l.drafts && l.drafts[msgFor(l).lang] ? "fresh" : "write");
     if (k === "e") { e.preventDefault(); const ta = $(".composer textarea", stage); if (ta) ta.focus(); return; }
     if (k === "f") { const el = $(".composer", stage); return setLang(l, msgFor(l).lang === "fr" ? "en" : "fr", el); }
   });

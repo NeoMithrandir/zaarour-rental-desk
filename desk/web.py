@@ -11,7 +11,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import capture, db, feed, learn, lease_import, lease_scan, leases, outreach, scan, tal
+from . import capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, scan, send, tal
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -294,9 +294,14 @@ def api_leads(conn, settings, tab, phase=""):
         d["message_en"] = outreach.render(d, settings, "en")
         d["followup_fr"] = outreach.render(d, settings, "fr", "followup")
         d["followup_en"] = outreach.render(d, settings, "en", "followup")
+        d["drafts"] = drafts.saved(conn, d["id"])
+        d["send"] = send.route(d["source"])
         out.append(d)
+    agent = settings.get("agent", {})
     return {"leads": out, "counts": lead_counts(conn), "today": today_counts(conn),
-            "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS}
+            "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS,
+            "drafting": drafts.status(settings),
+            "agent": {"n": agent.get("name", ""), "e": agent.get("email", ""), "p": agent.get("phone", "")}}
 
 
 def lead_counts(conn):
@@ -348,15 +353,21 @@ def _group(conn, r, action, t):
                      args + (f"Same poster as {r['id']}",))
 
 
-def template_used(lead, settings, message):
+def template_used(lead, settings, message, saved_drafts=None):
     """Which template an outgoing message came from, and whether Stefan edited it.
 
     The id carries a short hash of the template text, so a reworded template counts as a new variant
-    in the learnings."""
+    in the learnings. A message written for the ad counts as its draft's id (model and samples)."""
+    saved_drafts = saved_drafts or {}
+    for d in saved_drafts.values():
+        if (message or "").strip() == d["text"].strip():
+            return d["template"], False
     for lang in ([lead.get("lang")] if lead.get("lang") else []) + ["fr", "en"]:
         if (message or "").strip() == outreach.render(lead, settings, lang).strip():
             return outreach.template_id("outreach", lang), False
     lang = outreach.detect_lang(message or "") if message else (lead.get("lang") or "fr")
+    if lang in saved_drafts:  # Stefan reworked the custom message
+        return saved_drafts[lang]["template"], bool(message)
     return outreach.template_id("outreach", lang), bool(message)
 
 
@@ -372,7 +383,8 @@ def api_decide(conn, lead_id, body, settings=None):
     _group(conn, r, action, t)
     template = edited = None
     if action in ("approve", "sent") and (body.get("message") or action == "approve"):
-        template, edited = template_used(db.lead_dict(r), settings or load_settings(), body.get("message", ""))
+        template, edited = template_used(db.lead_dict(r), settings or load_settings(), body.get("message", ""),
+                                         drafts.saved(conn, lead_id))
     if action in LOGGED:  # the learning log: every decision and outcome, with the ad's signals
         db.log_event(conn, db.lead_dict(r), action, body.get("reason") or body.get("outcome"),
                      template or r["template"], edited)
@@ -411,6 +423,19 @@ def api_decide(conn, lead_id, body, settings=None):
         return {"error": "unknown action"}, 400
     conn.commit()
     return {"ok": True}, 200
+
+
+def api_draft(conn, lead_id, body, settings):
+    """Write (or fetch the saved) custom message for one ad. Slow the first time: it waits for the model."""
+    r = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+    if not r:
+        return {"error": "not found"}, 404
+    lang = "en" if body.get("lang") == "en" else "fr"
+    try:
+        d = drafts.get_or_write(conn, db.lead_dict(r), lang, settings, fresh=bool(body.get("fresh")))
+    except drafts.DraftError as e:
+        return {"error": str(e)}, 200
+    return {"lang": lang, **d}, 200
 
 
 # ---------------------------------------------------------------- server
@@ -541,6 +566,9 @@ class Handler(BaseHTTPRequestHandler):
                 lead_id = urllib.parse.unquote(path[len("/api/lead/"):-len("/decide")])
                 res, code = api_decide(conn, lead_id, body, load_settings())
                 return self._json(res, code)
+            if path.startswith("/api/lead/") and path.endswith("/draft"):
+                lead_id = urllib.parse.unquote(path[len("/api/lead/"):-len("/draft")])
+                return self._json(*api_draft(conn, lead_id, body, load_settings()))
             if path == "/api/decide-many":
                 done = [api_decide(conn, i, body)[1] == 200 for i in body.get("ids", [])]
                 return self._json({"ok": sum(done)})

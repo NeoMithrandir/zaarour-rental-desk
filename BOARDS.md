@@ -26,3 +26,25 @@ There are three legitimate routes in:
 | Louer.ca | All allowed; publishes a sitemap. Run by Rentals.ca. Pages are an empty app shell: ads come only from its GraphQL API, which first hands out a sign-in token. | Not checked. | Capture button. A scanner needs Louer.ca to issue the desk its own API key or feed (see SCANNER-LAUNCH.md). |
 
 "To confirm" items need a person to read the board's terms page (or ask the board); the desk keeps working without them.
+
+## Sending
+
+What each board asks before a message goes, as of 2026-11-14. Not yet checked by opening each board's message box
+signed in: Stefan should confirm each line the first time he sends there ("to confirm" marks the least certain). The desk does not submit any board's form by
+itself: every route below needs Stefan signed in as himself, or a CAPTCHA a person answers, and the desk never gets
+around either. The **Fill from desk** bookmark puts the approved message in the box; Stefan clicks Send.
+
+| Board | Where the message goes | What sending needs |
+|---|---|---|
+| Kijiji | Send message box on the ad, to the poster's Kijiji inbox | Kijiji account, signed in |
+| Craigslist | Reply gives a relay email address; the message goes from Stefan's mailbox (Fill works in Gmail/Outlook web compose) | A CAPTCHA before the address shows; terms forbid scripts |
+| LogisQuébec | Contact form on the ad (name, email, phone, message) | To confirm: possible CAPTCHA |
+| liv.rent | In-app chat with the landlord | liv.rent account, signed in |
+| Appartogo | Contact form on the ad | To confirm |
+| LesPAC | Contacter l'annonceur | LesPAC account, signed in (to confirm) |
+| Facebook Marketplace / groups | Messenger | Facebook account, signed in |
+| Rentals.ca, PadMapper/Zumper, Louer.ca, DuProprio | Contact form on the ad | Bot checks (Rentals.ca, PadMapper); others to confirm |
+
+A board could be sent to directly only through a messaging API or partner route the board itself offers, with its
+written permission, like scanning. None offers one today. The per-board notes the desk shows under each message are
+in `desk/send.py` (ROUTES): update them there when a board is checked.

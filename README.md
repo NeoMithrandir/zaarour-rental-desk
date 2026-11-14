@@ -83,6 +83,32 @@ select the description if you like, click the bookmark, check the small form tha
 It reads only the page you are on, only when you click. An ad already in the desk (for example from Kijiji) is
 matched, not doubled.
 
+## Custom messages
+
+Each ad can get its own message, written in Stefan's style from his past outreach messages, instead of the template.
+
+1. **Samples.** Put Stefan's past messages in `data/outreach-samples/` (or set `drafts.samples_path` in
+   `config/settings.json` to another folder): one message per `.txt` or `.md` file, several in one file split by a
+   line of `---`, or saved emails (`.eml`). French and English both work; the model reads up to 8, same language first.
+   The folder stays on this Mac (`data/` is not committed).
+2. **Model.** In `config/settings.json`, set `"drafts": {"provider": "lmstudio"}` or `"claude"`.
+   - `lmstudio`: open LM Studio, load a model, and start its local server (Developer tab, port 1234). Nothing leaves
+     the Mac. `drafts.lmstudio.model` picks a model; empty uses whichever is loaded.
+   - `claude`: the ad and the samples go to the Claude API (`anthropic_api_key`, as for the lease scan; needs
+     `python3 -m pip install anthropic`). Model and effort under `drafts.claude`.
+3. **Use.** When an ad opens, the desk writes its message (and the next ad's, so it's ready). The box says whether
+   it's a custom message or the template; **Rewrite** (or <kbd>W</kbd>) writes another, **Use the template** switches
+   back. Stefan reads, edits and approves as always. The broker disclaimer is put back if the model drops it, and a
+   message over the length limit gets one shorter try. Each message is saved with the ad, and the learnings count
+   custom messages (by model and sample set) next to the templates.
+
+## Sending
+
+Approve copies the message and opens the ad. On the ad, open the board's message box (signed in as yourself), click
+the **Fill from desk** bookmark (install it from **Browser buttons**), read the message and click the board's Send.
+The bookmark fills the message and, where the form asks and they're empty, Stefan's name, email and phone. It never
+clicks Send. No board lets the desk submit its form itself (sign-ins, CAPTCHAs): see BOARDS.md, Sending.
+
 ## Notes
 
 - Runs on one computer at `http://127.0.0.1:8765`; data is in `data/desk.sqlite3` (not committed). For Stefan to use it from his own machine, either run it there or host it (see `docs/next-steps.md`).

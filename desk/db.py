@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS events (
     lead_id TEXT, at TEXT, action TEXT, reason TEXT, template TEXT, edited INTEGER, signals TEXT
 );
 CREATE INDEX IF NOT EXISTS events_lead ON events(lead_id, at);
+CREATE TABLE IF NOT EXISTS drafts (
+    lead_id TEXT, lang TEXT, text TEXT, template TEXT, model TEXT, created_at TEXT,
+    PRIMARY KEY (lead_id, lang)
+);
 CREATE TABLE IF NOT EXISTS rentals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT,
