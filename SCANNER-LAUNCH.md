@@ -71,13 +71,26 @@ Realistic for this week: Kijiji, LogisQuébec, liv.rent and (if they say yes) Cr
 arrives, since their scanners are built. The other six need a reader written after the company says how it will
 give access, so they follow the week after their answer.
 
+## Schedule
+
+Every scanner runs at **2:30 am and 12:00 every day** (Mac local time, Eastern), whether or not the desk is open.
+Each run is `python3 -m desk fetch`, so the cache still decides: a board whose last good read is inside its freshness
+window (Kijiji and Craigslist 3 h, LogisQuébec 6 h, liv.rent 24 h, alert emails 30 min) is reused, not read again.
+Any new scanner listed in `sources` with its permission on is picked up by the same job.
+
+- **Install, once:** double-click `launcher/schedule.command` (it adds `~/Library/LaunchAgents/ca.zaarour.desk.scan.plist`).
+  Remove it with `launcher/schedule.command remove`. Log: `data/logs/scan.log`.
+- **Wake for the 2:30 run:** a sleeping Mac runs a missed job only when it next wakes. To have it awake on time,
+  plugged in, once: `sudo pmset repeat wakeorpoweron MTWRFSU 02:25:00` (check with `pmset -g sched`; undo with
+  `sudo pmset repeat cancel`). The Mac must stay logged in, and the lid open or on power, for the job to run.
+
 ## Other launch gaps
 
 | Gap | State today | What to do |
 |---|---|---|
 | **Contact details** | `config/settings.json` does not exist, so the desk uses the placeholders (514-000-0000, `stefan@zaarour.ca`, `zaarour.ca/location`). Those go into the user agent every board sees and into Stefan's messages. | Copy `settings.example.json` to `settings.json` and fill `agent` and `office_email` **before** sending the permission requests, so each letter can name the real user agent. |
 | **Merge state** | `rental-desk-scan` and `rental-desk-ui` are fully merged into `rental-desk-v1`. `rental-desk-v1` is not merged into `main`. The repo has **no remote**: the code exists only on this Mac. | Add a private GitHub remote and push, then merge `rental-desk-v1` into `main`. The `Zaarour-scan` and `Zaarour-ui` worktrees can be removed after that. |
-| **Where it runs** | Only on Nesi's Mac, only while the desk is open (`morning.command`, then a check every 60 min). No scheduled job. | Decide: Stefan's computer, or a small always-on server. A server is required if any board allowlists an IP, and lets boards be read on schedule even when nobody has the desk open. |
+| **Where it runs** | Only on Nesi's Mac. Reads while the desk is open (`morning.command`, then a check every 60 min), plus the nightly schedule once installed (see Schedule). | Decide: Stefan's computer, or a small always-on server. A server is required if any board allowlists an IP, and lets boards be read on schedule even when nobody has the desk open. |
 | **Alert inbox** | Not set up: no `data/inbox/`, `alerts.imap` blank. It needs no permission. | Set it up this week anyway (README, Email alerts): saved searches with email alerts on Kijiji, Craigslist, Rentals.ca, PadMapper, LesPAC, LogisQuébec. It covers every board until its scanner is approved. |
 | **Lease photo scan key** | `anthropic` package not installed, no API key. Unrelated to board permissions. | `python3 -m pip install anthropic`, then `anthropic_api_key` in `settings.json`. |
 | **Tests** | 44 unit tests pass (`python3 -m unittest discover -s tests`), including the permission switch, its limits and the polite fetcher. Parsers are tested against saved pages only; Kijiji and Craigslist have not been read live since mid-October. | After each board's first supervised read, compare a few ads against the site and refresh that board's fixture if the page changed. |
