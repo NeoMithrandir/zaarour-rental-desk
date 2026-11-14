@@ -34,11 +34,14 @@ def enrich(conn, source, leads, parse_ad, settings, fetcher, log=print):
     cfg = settings.get("details") or {}
     if source not in cfg.get("boards", []):
         return 0
-    have = {r[0] for r in conn.execute("SELECT id FROM leads WHERE source=? AND detailed=1", (source,))}
+    have = {r["id"]: r for r in conn.execute("SELECT * FROM leads WHERE source=? AND detailed=1", (source,))}
     known = {r[0] for r in conn.execute("SELECT id FROM leads WHERE source=?", (source,))}
     for lead in leads:
         if lead["id"] in have:
-            lead["summary_only"] = True  # keep the full text already stored
+            # Keep the full text already stored, and check the ad against it again, not against the short summary.
+            lead["summary_only"] = True
+            for k in DETAIL_FIELDS:
+                lead[k] = have[lead["id"]][k] or lead.get(k)
     todo = [l for l in leads if l["id"] not in have and l.get("url")]
     todo.sort(key=lambda l: l["id"] in known)  # new ads first, otherwise in page order (newest first)
     done = failed = 0

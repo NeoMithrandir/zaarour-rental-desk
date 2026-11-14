@@ -271,6 +271,8 @@ class DetailTests(unittest.TestCase):
         self.assertEqual([u for u, _h in web.asked if "robots" not in u], [self.URL])
         snippet = self.conn.execute("SELECT snippet FROM leads WHERE source_id='AAA'").fetchone()[0]
         self.assertIn("Owner here", snippet)
+        bucket = self.conn.execute("SELECT bucket FROM leads WHERE source_id='BBB'").fetchone()[0]
+        self.assertEqual(bucket, "broker")  # still checked against the full text
 
     def test_cap_per_read(self):
         self.settings["details"]["max_per_run"] = 1
