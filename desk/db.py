@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS rentals (
 
 LEAD_FIELDS = ["id", "source", "source_id", "url", "title", "snippet", "address", "area", "phase", "lat", "lng",
                "price", "bedrooms", "unit_type", "poster_id", "poster_type", "posted_at", "image",
-               "search", "lang", "flags", "bucket"]
+               "search", "lang", "flags", "bucket", "detailed"]
+# What only an opened ad has (sources/details.py): a later search-page read must not overwrite it.
+DETAIL_FIELDS = ["snippet", "posted_at", "bedrooms", "unit_type", "detailed"]
 
 
 def now():
@@ -65,6 +67,8 @@ def connect(path=None):
         if col not in rcols:
             conn.execute(f"ALTER TABLE rentals ADD COLUMN {col} TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS rentals_external_id ON rentals(external_id) WHERE external_id IS NOT NULL")
+    if "detailed" not in cols:  # 1 once the ad itself was opened for its full text
+        conn.execute("ALTER TABLE leads ADD COLUMN detailed INTEGER")
     if "template" not in cols:  # which message template an approved lead got (for the learnings)
         conn.execute("ALTER TABLE leads ADD COLUMN template TEXT")
     return conn
@@ -82,8 +86,9 @@ def upsert_lead(conn, lead, refresh=True):
         if not refresh:
             return False
         # Refresh the facts (price drops, edits) but never the decision.
-        sets = ", ".join(f"{k}=?" for k in LEAD_FIELDS if k != "id")
-        conn.execute(f"UPDATE leads SET {sets} WHERE id=?", [row[k] for k in LEAD_FIELDS if k != "id"] + [row["id"]])
+        fields = [k for k in LEAD_FIELDS if k != "id" and not (lead.get("summary_only") and k in DETAIL_FIELDS)]
+        sets = ", ".join(f"{k}=?" for k in fields)
+        conn.execute(f"UPDATE leads SET {sets} WHERE id=?", [row[k] for k in fields] + [row["id"]])
         return False
     row["first_seen"] = now()
     cols = LEAD_FIELDS + ["first_seen"]

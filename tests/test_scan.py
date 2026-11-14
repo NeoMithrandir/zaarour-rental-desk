@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from desk import alerts, capture, db, feed, learn, scan  # noqa: E402
 from desk.checks import Checker  # noqa: E402
-from desk.config import load_areas, load_settings  # noqa: E402
-from desk.sources import appartogo, http, kijiji, lespac  # noqa: E402
+from desk.config import CONFIG_DIR, load_areas, load_settings  # noqa: E402
+from desk.sources import appartogo, craigslist, details, http, kijiji, lespac  # noqa: E402
 from tests.test_desk import FIXTURE, BoardTests, ad, page_html  # noqa: E402
 
 KIJIJI_ROBOTS = """User-Agent: Mediapartners-Google
@@ -170,7 +170,7 @@ class ScanTests(unittest.TestCase):
     def test_no_board_is_read_without_written_permission(self):
         web = FakeWeb({})
         logs = []
-        defaults = load_settings()  # as shipped: every scanner off
+        defaults = json.loads((CONFIG_DIR / "settings.example.json").read_text())  # as shipped: every scanner off
         self.assertEqual(scan.due(self.conn, defaults), ["alerts"])
         for p in ({}, {"scan_enabled": True}, {"scan_enabled": False, "letter": "x.pdf"},
                   {"scan_enabled": True, "letter": "x.pdf", "expires": "2020-01-01"}):
@@ -209,6 +209,78 @@ class ScanTests(unittest.TestCase):
         self.assertTrue(all(s >= 30 for s in web.slept))
         ids = {r[0] for r in self.conn.execute("SELECT id FROM leads")}
         self.assertTrue({"lespac:228047031", "appartogo:3385138", "appartogo:7"} <= ids)
+
+
+CL_SEARCH = """<script type="application/ld+json">{"@type":"ItemList","itemListElement":[
+{"item":{"@type":"Apartment","latitude":45.45,"longitude":-73.69,"numberOfBedrooms":2}},
+{"item":{"@type":"Apartment","latitude":45.45,"longitude":-73.69,"numberOfBedrooms":3}}]}</script>
+<li class="cl-static-search-result" title="Beau 4 1/2 Lachine"><a href="https://www.craigslist.org/view/d/lachine/AAA">
+<div class="price">$1,650</div><div class="location">Lachine</div></a></li>
+<li class="cl-static-search-result" title="5 1/2 Lachine"><a href="https://www.craigslist.org/view/d/lachine/BBB">
+<div class="price">$1,900</div><div class="location">Lachine</div></a></li>"""
+
+
+def cl_ad(text):
+    return (f'<section id="postingbody"><div class="print-information print-qrcode-container"><p>QR</p>'
+            f'<div class="print-qrcode"></div></div>{text}</section>'
+            '<div class="attrgroup"><div class="attr">2BR / 1Ba</div><div class="attr">laundry in bldg</div></div>'
+            '<p class="postinginfo reveal">posted: <time class="date timeago" datetime="2026-11-13T09:00:00-0500">x</time></p>')
+
+
+class DetailTests(unittest.TestCase):
+    URL = "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        self.settings["sources"] = ["craigslist"]
+        self.settings["permissions"] = {"craigslist": {"scan_enabled": True, "letter": "x"}}
+        self.settings["details"] = {"boards": ["craigslist"], "max_per_run": 60}
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_redact_blanks_phones_and_emails_but_not_rents(self):
+        out = details.redact("Call 514Two66One355, (514) 266-1355 or bob@x.ca. 1 650 $ for a 4 1/2, 2 rooms.")
+        self.assertNotIn("266", out)
+        self.assertNotIn("bob@", out)
+        self.assertIn("1 650 $ for a 4 1/2, 2 rooms", out)
+
+    def test_craigslist_ad_page(self):
+        d = craigslist.parse_ad(cl_ad("Bright 4 1/2<br>Near the train"))
+        self.assertEqual(d["text"].splitlines()[:2], ["Bright 4 1/2", "Near the train"])
+        self.assertIn("laundry in bldg", d["text"])
+        self.assertNotIn("QR", d["text"])
+        self.assertEqual(d["posted_at"], "2026-11-13T09:00:00-0500")
+
+    def test_new_ads_are_opened_once_and_their_text_kept(self):
+        web = FakeWeb({self.URL: (200, {}, CL_SEARCH),
+                       "https://www.craigslist.org/view/d/lachine/AAA": (200, {}, cl_ad("Owner here. Text 514 555 0101")),
+                       "https://www.craigslist.org/view/d/lachine/BBB": (200, {}, cl_ad("Courtier immobilier, RE/MAX"))},
+                      robots="")
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))
+        rows = {r["source_id"]: r for r in self.conn.execute("SELECT * FROM leads")}
+        self.assertIn("Owner here", rows["AAA"]["snippet"])
+        self.assertNotIn("555", rows["AAA"]["snippet"])  # the number is never stored
+        self.assertEqual(rows["BBB"]["bucket"], "broker")  # the full text caught the broker
+        # Next read: the search page again, no ad opened again, and the full text survives.
+        web.asked.clear()
+        scan.run(self.conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual([u for u, _h in web.asked if "robots" not in u], [self.URL])
+        snippet = self.conn.execute("SELECT snippet FROM leads WHERE source_id='AAA'").fetchone()[0]
+        self.assertIn("Owner here", snippet)
+
+    def test_cap_per_read(self):
+        self.settings["details"]["max_per_run"] = 1
+        web = FakeWeb({self.URL: (200, {}, CL_SEARCH),
+                       "https://www.craigslist.org/view/d/lachine/AAA": (200, {}, cl_ad("one")),
+                       "https://www.craigslist.org/view/d/lachine/BBB": (200, {}, cl_ad("two"))}, robots="")
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(len([u for u, _h in web.asked if "/view/" in u]), 1)
+        scan.run(self.conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM leads WHERE detailed=1").fetchone()[0], 2)
 
 
 ALERT = """From: Kijiji <alerts@kijiji.ca>

@@ -46,6 +46,8 @@
     "lespac":      {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null}
   },
 
+  "details": {"_comment": "Boards whose ads the desk opens for their full text, because their search pages carry little. Only ads without full text yet, new ones first, at most max_per_run per board per read. Phone numbers and emails are blanked out before storing.", "boards": ["craigslist", "logisquebec"], "max_per_run": 60},
+
   "scan": {
     "_comment": "A board is read again only when its last good read is older than its freshness window (minutes). Requests to one host are at least min_interval_seconds apart (more if robots.txt sets a Crawl-delay), plus up to jitter x that at random.",
     "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360, "lespac": 180, "alerts": 30},

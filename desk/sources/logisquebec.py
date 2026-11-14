@@ -44,6 +44,18 @@ def parse(page, region=""):
     return leads
 
 
+def parse_ad(page):
+    """One ad page: the full description, rooms, size and availability (desk/sources/details.py)."""
+    ad = next((b for b in ld_json(page) if isinstance(b, dict) and b.get("@type") == "RealEstateListing"), {})
+    unit = ad.get("mainEntity") or {}
+    text = re.sub(r"\n{3,}", "\n\n", ad.get("description") or "").strip()
+    avail = re.search(r"Disponible à partir de\s*:\s*(?:<[^>]+>\s*)*([^<]+)", page)
+    if avail:
+        text += f"\n\nDisponible à partir de : {avail.group(1).strip()}"
+    beds = unit.get("numberOfBedrooms")
+    return {"text": text, "bedrooms": str(beds) if beds else ""}
+
+
 def collect(settings, log=print, fetcher=fetch, known=None):
     """Newest first per region; stops at the first page with nothing new (caught up) or unchanged."""
     cfg = settings.get("logisquebec", {})

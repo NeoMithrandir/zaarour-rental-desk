@@ -147,7 +147,8 @@ class Checker:
     def run(self, lead):
         """Return (area, flags) for a lead dict with title/snippet/address/price/poster_type/poster_id."""
         flags = []
-        text = fold(" ".join([lead.get("title", ""), lead.get("snippet", "")]))
+        # check_text: an opened ad's text before its phone numbers were blanked out (never stored).
+        text = fold(" ".join([lead.get("title", ""), lead.get("snippet", ""), lead.get("check_text", "")]))
 
         if TENANT_RE.search(text):
             flags.append({"code": "tenant_ad", "level": "hide", "text": "Tenant ad (lease transfer, sublet or room)"})
@@ -165,7 +166,7 @@ class Checker:
 
         hits = [label for rx, label in self.keywords if rx.search(text)]
         phones = {"".join(m.groups()) for m in PHONE_RE.finditer(text)}
-        emails = {e.lower() for e in EMAIL_RE.findall(lead.get("snippet", "") or "")}
+        emails = {e.lower() for e in EMAIL_RE.findall((lead.get("snippet") or "") + " " + (lead.get("check_text") or ""))}
         if phones & self.phones:
             hits.append("Phone matches a known broker")
         if emails & self.emails:

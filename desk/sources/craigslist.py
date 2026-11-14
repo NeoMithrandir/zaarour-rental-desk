@@ -4,6 +4,7 @@ One search page lists every owner ad in the Montreal region. The page carries th
 JSON-LD (title, map position, bedrooms) plus a plain list with each ad's link, price and
 neighbourhood; the two are in the same order.
 """
+import html as htmllib
 import re
 
 from .http import fetch, ld_json, money
@@ -43,6 +44,27 @@ def parse(html):
             "poster_id": "", "poster_type": "owner", "posted_at": "", "image": "", "search": "Craigslist owners",
         })
     return leads
+
+
+def _plain(fragment):
+    text = re.sub(r"<br\s*/?>", "\n", fragment)
+    return htmllib.unescape(re.sub(r"<[^>]+>", " ", text))
+
+
+def parse_ad(html):
+    """One ad page: the poster's text, the listed features and the posting date (desk/sources/details.py)."""
+    body = re.search(r'<section id="postingbody">(.*?)</section>', html, re.S)
+    text = ""
+    if body:
+        text = re.sub(r'<div class="print-information.*?</div>\s*</div>', "", body.group(1), flags=re.S)
+        text = "\n".join(l.strip() for l in _plain(text).splitlines() if l.strip())
+    attrs = [re.sub(r"\s+", " ", _plain(a)).strip() for a in re.findall(r'<div class="attr[^"]*">(.*?)</div>', html, re.S)]
+    if attrs:
+        text += "\n\n" + " · ".join(a for a in attrs if a)
+    posted = re.search(r'posted:\s*<time[^>]*datetime="([^"]+)"', html)
+    beds = next((str(b.get("numberOfBedrooms")) for b in ld_json(html)
+                 if isinstance(b, dict) and b.get("numberOfBedrooms")), "")
+    return {"text": text, "posted_at": posted.group(1) if posted else "", "bedrooms": beds}
 
 
 def collect(settings, log=print, fetcher=fetch, known=None):

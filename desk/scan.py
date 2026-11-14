@@ -10,14 +10,14 @@ import time
 from datetime import date, datetime, timedelta
 
 from . import db
-from .sources import http
+from .sources import details, http
 
 DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360,
                      "lespac": 180}
 # Boards the desk reads by itself. Each needs the board's written permission on file (settings `permissions`)
 # before it reads anything; the alert inbox only reads Stefan's own email, so it needs none.
 SCANNERS = ("kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac")
-HOSTS = {"kijiji": ["www.kijiji.ca"], "craigslist": ["montreal.craigslist.org"],
+HOSTS = {"kijiji": ["www.kijiji.ca"], "craigslist": ["montreal.craigslist.org", "www.craigslist.org"],
          "logisquebec": ["www.logisquebec.com"], "livrent": ["liv.rent"],
          "appartogo": ["appartogo.com"], "lespac": ["www.lespac.com"]}
 
@@ -129,6 +129,8 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None):
         ok, error, leads = 1, None, []
         try:
             leads = module.collect(settings, log=log, fetcher=board_fetcher, known=known)
+            if leads and hasattr(module, "parse_ad"):
+                details.enrich(conn, name, leads, module.parse_ad, settings, board_fetcher, log)
         except http.NotModified:
             log(f"  {name}: no change since last check")
         except Exception as e:  # one board failing never stops the others
