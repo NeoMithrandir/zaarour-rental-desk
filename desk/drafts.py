@@ -107,7 +107,8 @@ Phone: {agent.get("phone", "")}. Email: {agent.get("email", "")}. Rentals page: 
 
 Here are messages the broker wrote before. Match their voice, length, structure and level of formality.
 Reuse their way of opening, of presenting the service and of asking for a reply. Do not copy names,
-addresses or details that belong to other ads.
+addresses or details that belong to other ads. Some samples may be in French and some in English: take the
+voice from all of them, and write in the language asked for below.
 
 {shown or "(no samples yet: write a short, warm, professional message)"}
 
@@ -224,6 +225,14 @@ def status(settings):
             "model": (cfg.get(provider) or {}).get("model", "") if provider else ""}
 
 
+def runner(settings, client=None):
+    """run(system, user) -> (text, model) on the provider set in settings."""
+    cfg = settings.get("drafts") or {}
+    if cfg.get("provider") == "lmstudio":
+        return lambda s, u: _lmstudio(s, u, cfg.get("lmstudio") or {})
+    return lambda s, u: _claude(s, u, cfg.get("claude") or {}, settings, client)
+
+
 def write(lead, lang, settings, client=None):
     """One message for this ad, in this language. Returns {"text", "template", "model"}."""
     cfg = settings.get("drafts") or {}
@@ -232,8 +241,7 @@ def write(lead, lang, settings, client=None):
         raise DraftError("Custom messages are off. Set drafts.provider to lmstudio or claude in config/settings.json.")
     samples = pick_samples(load_samples(settings), lang, settings)
     system, user = system_prompt(samples, lang, settings), ad_block(lead)
-    run = (lambda s, u: _lmstudio(s, u, cfg.get("lmstudio") or {})) if provider == "lmstudio" else \
-        (lambda s, u: _claude(s, u, cfg.get("claude") or {}, settings, client))
+    run = runner(settings, client)
     text, model = run(system, user)
     text = finish(text, lang)
     limit = int(settings.get("message_char_limit", 1000))

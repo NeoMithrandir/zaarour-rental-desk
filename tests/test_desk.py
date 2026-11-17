@@ -674,6 +674,27 @@ class MyDetailsTests(unittest.TestCase):
         self.assertTrue(profile.save_template("outreach_fr", "Bonjour {agent_name"))
         self.assertEqual(profile.read_template("outreach_fr"), before)
 
+    def test_samples_suggest_french_and_english_wording(self):
+        self.saved_sugg, profile.SUGGESTIONS = profile.SUGGESTIONS, self.root / "sugg.json"
+        self.addCleanup(setattr, profile, "SUGGESTIONS", self.saved_sugg)
+        settings = {"drafts": {"samples_path": str(self.root / "samples"), "provider": "claude"}}
+        profile.save_samples(settings, "Bonjour, j'ai vu votre annonce et je peux vous aider a louer rapidement.\n---\n"
+                                       "Hi, I saw your ad and our team can rent your place quickly for you.")
+        prompts = []
+
+        def fake(system, user):
+            prompts.append(system)
+            return ("Salut, ici {agent_name} pour {city}." if "Write it in French" in system else "Hey, {agent_name} here, {nom}."), "m"
+        real, drafts.runner = drafts.runner, lambda *_a: fake
+        self.addCleanup(setattr, drafts, "runner", real)
+        failed = profile.suggest_templates(settings)
+        self.assertIn("j'ai vu votre annonce", prompts[1])                # the English one learns from French samples too
+        self.assertEqual(list(failed), ["outreach_en"])                    # {nom} isn't a fill-in: refused
+        self.assertTrue(profile.suggestions()["outreach_fr"].startswith("Salut, ici {agent_name}"))
+        self.assertNotIn("Salut", profile.read_template("outreach_fr"))   # a suggestion, not saved yet
+        profile.save_template("outreach_fr", profile.suggestions()["outreach_fr"])
+        self.assertNotIn("outreach_fr", profile.suggestions())
+
     def test_samples_go_where_drafts_read_them(self):
         settings = {"drafts": {"samples_path": str(self.root / "samples")}}
         profile.save_samples(settings, "Bonjour, j'ai vu votre annonce et je peux vous aider a louer rapidement.\n---\n"

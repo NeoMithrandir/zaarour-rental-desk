@@ -81,6 +81,7 @@ def save_template(name, text):
     problems = check_template(name, text)
     if not problems:
         _write(TEMPLATE_DIR / f"{name}.txt", text.replace("\r\n", "\n").strip() + "\n")
+        drop_suggestion(name)
     return problems
 
 
@@ -97,3 +98,72 @@ def read_samples(settings):
 
 def save_samples(settings, text):
     _write(samples_path(settings), text.replace("\r\n", "\n").strip() + "\n")
+
+
+# ---------------------------------------------------------------- wording suggested from the samples
+SUGGEST = ["outreach_fr", "outreach_en"]   # the samples are first messages, so they shape the first-message wording
+SUGGESTIONS = ROOT / "data" / "template-suggestions.json"
+
+
+def suggestions():
+    try:
+        return json.loads(SUGGESTIONS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _store(sugg):
+    _write(SUGGESTIONS, json.dumps(sugg, ensure_ascii=False, indent=2) + "\n")
+
+
+def drop_suggestion(name):
+    sugg = suggestions()
+    if sugg.pop(name, None) is not None:
+        _store(sugg)
+
+
+def suggest_prompt(samples, name, settings):
+    lang = name.rsplit("_", 1)[1]
+    allowed = sorted(TEMPLATES[name][1])
+    shown = "\n\n".join(f'<sample n="{i + 1}">\n{s["text"]}\n</sample>' for i, s in enumerate(samples))
+    return f"""You rewrite a real estate broker's standard first message to landlords who posted a rental ad themselves,
+so it sounds like the broker. The desk fills in this message for every ad, so it must not mention any one ad.
+
+Messages the broker wrote before (some may be in French, some in English; take the voice from all of them):
+{shown}
+
+The current standard message:
+<current>
+{read_template(name)}
+</current>
+
+Rules:
+- Write it in {"French (Québec)" if lang == "fr" else "English"}, in the broker's voice, length and structure.
+- Keep what the current message offers; never invent facts, prices or promises.
+- Use these fill-ins, written exactly like this, where the details go: {", ".join("{" + a + "}" for a in allowed)}.
+  Use {{city}} for the ad's city and {{agent_phone}} for the phone number. No other curly brackets.
+- End with this line exactly: {drafts.outreach.DISCLAIMER[lang]}
+- Output only the message."""
+
+
+def suggest_templates(settings, client=None):
+    """Write new first-message wording in French and English from the samples, for Stefan to review.
+    Returns {name: problem} for the ones that failed; the rest are stored as suggestions, not saved."""
+    samples = drafts.load_samples(settings)
+    run, sugg, failed = drafts.runner(settings, client), suggestions(), {}
+    for name in SUGGEST:
+        lang = name.rsplit("_", 1)[1]
+        try:
+            text, _model = run(suggest_prompt(drafts.pick_samples(samples, lang, settings), name, settings),
+                               "Write the standard message now.")
+        except drafts.DraftError as e:
+            failed[name] = str(e)
+            continue
+        text = drafts.finish(text, lang)
+        problems = check_template(name, text)
+        if problems:
+            failed[name] = problems[0]
+        else:
+            sugg[name] = text
+    _store(sugg)
+    return failed

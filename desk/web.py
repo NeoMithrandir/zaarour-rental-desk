@@ -276,7 +276,11 @@ def stats_page(conn):
 
 
 SAVED = {"details": "Your details are saved. New messages use them now.",
-         "samples": "Your sample messages are saved."}
+         "samples": "Your past messages are saved.",
+         "samples-off": "Your past messages are saved. They'll shape your French and English wording once custom "
+                        "messages are switched on (drafts.provider in config/settings.json).",
+         "suggested": "Your past messages are saved, and the desk rewrote your French and English first messages "
+                      "in your style. Read them below, then Save each one you want to use."}
 
 
 UNSAVED_GUARD = """<script>/* Each box saves on its own: warn before leaving with another box's changes unsaved. */
@@ -288,7 +292,7 @@ document.querySelectorAll("form").forEach(f => {
 addEventListener("beforeunload", e => { if ([...dirty].some(f => f !== sending)) e.preventDefault(); });</script>"""
 
 
-def my_details_page(settings, saved="", errors=None, typed=None):
+def my_details_page(settings, saved="", errors=None, typed=None, note=""):
     """Stefan's contact details, message wording and style samples, each saved by its own button.
     errors/typed: a template that didn't save, with what Stefan typed, so nothing he wrote is lost."""
     errors, typed = errors or {}, typed or {}
@@ -299,21 +303,26 @@ def my_details_page(settings, saved="", errors=None, typed=None):
                           settings.get("office_email", ""))
     sample_lead = {"address": "", "area": "Laval"}
     templates = ""
+    sugg = profile.suggestions()
     for name, (label, allowed) in profile.TEMPLATES.items():
-        text = typed.get(name, profile.read_template(name))
+        suggested = name in sugg and name not in typed
+        text = typed.get(name) or sugg.get(name) or profile.read_template(name)
         problem = "".join(f"<li>{esc(p)}</li>" for p in errors.get(name, []))
         kind, lang = name.rsplit("_", 1)
         preview = ""
-        if kind in ("outreach", "followup") and not problem:
+        if kind in ("outreach", "followup") and not problem and not suggested:
             preview = (f'<details><summary>How it reads (an ad in Laval)</summary>'
                        f'<pre>{esc(outreach.render(sample_lead, settings, lang, kind))}</pre></details>')
         templates += f"""<form method="post" action="/me/template/{name}" class="form card" id="t-{name}">
 <h3>{esc(label)}</h3>{f'<div class="banner bad">Not saved:<ul>{problem}</ul></div>' if problem else ''}
 {'<p class="banner ask"><span>Saved. New messages use this wording now.</span></p>' if saved == name else ''}
+{f'<p class="banner ask"><span>Suggested from your past messages, not used yet. Save to use it.</span><button class="btn" type="submit" formaction="/me/suggestion/{name}/discard">Keep my current wording</button></p>' if suggested else ''}
 <label class="field wide"><textarea name="text" rows="12">{esc(text)}</textarea></label>
 <p class="muted">Fill-ins the desk replaces: {esc(', '.join('{' + a + '}' for a in sorted(allowed)))}</p>
 {preview}<div class="actions-row"><button class="primary" type="submit">Save</button></div></form>"""
     banner = f'<p class="banner ask"><span>{esc(SAVED[saved])}</span></p>' if saved in SAVED else ""
+    if note:
+        banner += f'<div class="banner bad">{esc(note)}</div>'
     body = f"""<h1>My details</h1>
 <p class="lede">Your name, phone and the wording of your messages. Everything you save here is used by the next
 message the desk shows you. The line about brokers is always added to first messages, even if you remove it.</p>
@@ -324,7 +333,8 @@ message the desk shows you. The line about brokers is always added to first mess
 {templates}
 <form method="post" action="/me/samples" class="form card" id="samples"><h2>Your past messages (style samples)</h2>
 <p class="muted">Paste a few messages you've sent landlords before. Put a line of three dashes (---) between two
-messages. When custom drafts are switched on, the desk writes each message in your style from these.</p>
+messages. They can be in French, English or both. When you save them, the desk rewrites your French and English
+first messages above in your style for you to review, and writes each ad's custom message in your style.</p>
 <label class="field wide"><textarea name="text" rows="14">{esc(profile.read_samples(settings))}</textarea></label>
 <div class="actions-row"><button class="primary" type="submit">Save samples</button></div></form>
 """ + UNSAVED_GUARD
@@ -677,8 +687,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, my_details_page(load_settings(), errors={name: errors}, typed={name: body.get("text", "")}))
                 return self._send(303, "", headers={"Location": f"/me?saved={name}#t-{name}"})
             if path == "/me/samples":
-                profile.save_samples(load_settings(), body.get("text", ""))
-                return self._send(303, "", headers={"Location": "/me?saved=samples#samples"})
+                settings = load_settings()
+                profile.save_samples(settings, body.get("text", ""))
+                if not drafts.status(settings)["on"]:
+                    return self._send(303, "", headers={"Location": "/me?saved=samples-off#samples"})
+                if not drafts.load_samples(settings):
+                    return self._send(303, "", headers={"Location": "/me?saved=samples#samples"})
+                failed = profile.suggest_templates(settings)
+                if failed:
+                    note = "The desk couldn't rewrite your wording this time: " + " ".join(sorted(set(failed.values())))
+                    return self._send(200, my_details_page(load_settings(), "samples", note=note))
+                return self._send(303, "", headers={"Location": "/me?saved=suggested#t-outreach_fr"})
+            if path.startswith("/me/suggestion/") and path.endswith("/discard"):
+                profile.drop_suggestion(path.split("/")[3])
+                return self._send(303, "", headers={"Location": "/me"})
             if path in ("/leases/new", "/rentals/new"):
                 errors = leases.validate(body)
                 if errors:
