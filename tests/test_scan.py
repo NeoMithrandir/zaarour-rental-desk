@@ -4,7 +4,9 @@ import email.policy
 import json
 import sys
 import tempfile
+import time
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -408,16 +410,27 @@ class PhoneTests(unittest.TestCase):
         self.settings = load_settings()
         self.settings["sources"] = ["kijiji"]
         self.settings["permissions"] = {"kijiji": {"scan_enabled": True, "letter": "Nesi's statement, 17 Nov 2026",
-                                                   "allow_contact_capture": True, "contact_basis": "letter, point 4"}}
+                                                   "letter_pending": True, "allow_contact_capture": True,
+                                                   "contact_basis": "letter, point 4"}}
         self.settings["kijiji"] = {"max_pages_per_search": 1,
                                    "searches": [{"name": "Island", "slug": "ville-de-montreal", "location_id": 1700281}]}
-        self.settings["contacts"] = {"reveal": {"kijiji": {"button": "Reveal phone number"}}, "max_reveals_per_run": 5,
-                                     "min_interval_seconds": 90, "blocked_days": 30}
+        # No reveal on the board reads below: the tests that click call phones.reveal with a fake browser.
+        self.settings["contacts"] = {"reveal": {}, "max_reveals_per_run": 5, "min_interval_seconds": 90,
+                                     "blocked_days": 30}
         url = kijiji.search_url(self.settings["kijiji"]["searches"][0])
         self.web = FakeWeb({url: (200, {}, page_html([
             ad(1, "4 1/2 Lachine, call 514-555-0101", "Lachine, QC H8S 1A1", poster="a",
                desc="Or text (438) 555 0199. 1 650 $ for a 4 1/2."),
-            ad(2, "5 1/2 Lachine", "Lachine, QC H8S 1A1", poster="b")]))})
+            ad(2, "5 1/2 Lachine", "Lachine, QC H8S 1A1", poster="b"),
+            ad(3, "3 1/2 Lachine", "Lachine, QC H8S 1A1", poster="c")]))})
+        self.slept = []
+        self.fetcher = self.real_clock_fetcher(self.web)
+
+    def real_clock_fetcher(self, web):
+        """The reveal paces itself on the wall clock (its log is in the database), so its tests use one too."""
+        settings = {"agent": {"email": "stefan@zaarour.ca", "rental_page_url": "https://zaarour.ca/location"},
+                    "scan": {"min_interval_seconds": 6, "jitter": 0}}
+        return http.PoliteFetcher(settings, None, opener=web.open, sleep=lambda s: None, clock=time.time)
 
     def tearDown(self):
         self.conn.close()
@@ -427,79 +440,155 @@ class PhoneTests(unittest.TestCase):
         r = self.conn.execute("SELECT phone, phone_via FROM leads WHERE id=?", (lead_id,)).fetchone()
         return (r["phone"], r["phone_via"])
 
-    def browser(self, results):
-        opened = []
+    def read_board(self, **kw):
+        return scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=self.fetcher, **kw)
+
+    def reveal(self, results, fetcher=None, reset=True, **kw):
+        """phones.reveal with a fake browser that answers `results` in turn (a list, or an exception to raise)."""
+        self.settings["contacts"]["reveal"] = {"kijiji": {"button": "Reveal phone number"}}
+        if reset:
+            self.conn.execute("UPDATE leads SET bucket='review', phone=NULL, phone_via=NULL, phone_checked_at=NULL")
+        calls, logs = [], []
 
         def open_browser(ua):
-            opened.append(ua)
-            return (type("Ctx", (), {"new_page": lambda self: type("P", (), {"close": lambda self: None})()})(),
-                    lambda: opened.append("closed"))
+            calls.append(("open", ua))
+            return "context", lambda: calls.append(("closed",))
 
-        def reveal_one(page, url, button, wait=None):
+        def reveal_one(context, url, button):
+            calls.append(("page", url))
             r = results.pop(0)
             if isinstance(r, Exception):
                 raise r
             return r
-        return opened, open_browser, reveal_one
+        n = phones.reveal(self.conn, self.settings, fetcher or self.fetcher, logs.append,
+                          open_browser=open_browser, reveal_one=reveal_one, sleep=self.slept.append,
+                          lock_path=Path(self.tmp.name) / "phones.lock", **kw)
+        return n, calls, logs
 
     def test_numbers_in_text(self):
         self.assertEqual(phones.in_text("Call 514Two66One355 or 1 (514) 266-1355, 1 650 $ for a 4 1/2"),
                          ["514-266-1355"])
-        self.assertEqual(phones.in_text("Lot 1234567890"), [])  # no area code starts with 1
+        self.assertEqual(phones.in_text("Grand 5 1/2 514.555.1234"), ["514-555-1234"])
+        self.assertEqual(phones.in_text("Disponible juillet 2026 514 555 1234"), ["514-555-1234"])
+        self.assertEqual(phones.in_text("Loyer 1450 514-555-1234"), ["514-555-1234"])
+        self.assertEqual(phones.in_text("514-555-1234 438-555-9876"), ["514-555-1234", "438-555-9876"])
+        self.assertEqual(phones.in_text("Lot 1234567890, 2 chambres, 1 650 $"), [])
 
-    def test_printed_numbers_kept_only_with_contact_permission(self):
-        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+    def test_numbers_are_blanked_from_stored_text_and_kept_only_with_contact_permission(self):
+        self.read_board()
         self.assertEqual(self.phone("kijiji:1"), ("514-555-0101, 438-555-0199", "ad text"))
         self.assertEqual(self.phone("kijiji:2"), (None, None))
-        self.assertEqual(scan.board_status(self.conn, self.settings)[0]["letter_pending"], True)
-        for off in ({"allow_contact_capture": False}, {"contact_basis": ""}):
-            tmp = tempfile.TemporaryDirectory()
-            conn = db.connect(Path(tmp.name) / "t.sqlite3")
-            self.settings["permissions"]["kijiji"].update({"allow_contact_capture": True, "contact_basis": "x", **off})
-            scan.run(conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(self.web))
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL").fetchone()[0], 0)
-            conn.close()
-            tmp.cleanup()
+        stored = self.conn.execute("SELECT title, snippet FROM leads WHERE id='kijiji:1'").fetchone()
+        self.assertNotIn("555", stored["title"] + stored["snippet"])
+        self.assertIn("1 650 $", stored["snippet"])
+        self.assertTrue(scan.board_status(self.conn, self.settings)[0]["letter_pending"])
+        for off in ({"allow_contact_capture": False}, {"contact_basis": ""}, {"scan_enabled": False},
+                    {"expires": "2020-01-01"}):
+            self.conn.execute("UPDATE leads SET phone=NULL, phone_via=NULL")
+            self.settings["permissions"]["kijiji"].update({"scan_enabled": True, "expires": "",
+                                                           "allow_contact_capture": True, "contact_basis": "x", **off})
+            self.assertFalse(phones.allowed(self.settings, "kijiji"))
+            self.read_board(force=True)
+            self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL").fetchone()[0], 0)
 
-    def test_reveal_clicks_a_few_well_spaced_and_stops_at_a_bot_check(self):
-        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
-        self.conn.execute("UPDATE leads SET bucket='review', phone=NULL, phone_via=NULL")
-        f, logs = fetcher_for(self.web), []
-        opened, open_browser, reveal_one = self.browser([["514-555-0303"], phones.Stop("runs a bot check")])
-        n = phones.reveal(self.conn, self.settings, f, logs.append, open_browser, reveal_one, sleep=self.web.sleep)
+    def test_reveal_spaces_its_pages_and_stops_at_a_bot_check(self):
+        self.read_board()
+        n, calls, logs = self.reveal([["514-555-0303"], phones.Stop("runs a bot check behind its show-number button")])
         self.assertEqual(n, 1)
-        self.assertIn("ZaarourRentalsDesk", opened[0])  # the honest user agent
-        self.assertEqual(opened[-1], "closed")
-        self.assertEqual(self.web.slept[-1], 90)
-        revealed = self.conn.execute("SELECT id FROM leads WHERE phone_via='revealed'").fetchall()
-        self.assertEqual(len(revealed), 1)
+        self.assertIn("ZaarourRentalsDesk", calls[0][1])  # the honest user agent
+        self.assertEqual(calls[-1], ("closed",))
+        self.assertEqual(len([c for c in calls if c[0] == "page"]), 2)  # nothing opened after the stop
+        # The first page waited out the gap after the scanner's last request, the second the gap after the first.
+        self.assertEqual(len(self.slept), 2)
+        self.assertTrue(all(85 < s <= 91 for s in self.slept), self.slept)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM leads WHERE phone_via='revealed'").fetchone()[0], 1)
         self.assertTrue(any("does not get past" in l for l in logs))
-        # The reveal is off for that board now; reading its search pages is not.
-        with self.assertRaises(http.HostCooling):
-            f._check_cooling("www.kijiji.ca show-number")
-        f._check_cooling("www.kijiji.ca")
-        opened, open_browser, reveal_one = self.browser([["514-555-0404"]])
-        self.conn.execute("UPDATE leads SET phone_checked_at=NULL")
-        self.assertEqual(phones.reveal(self.conn, self.settings, f, logs.append, open_browser, reveal_one), 0)
+        self.assertTrue(phones.stopped(self.conn, "kijiji"))
+        # The stop holds on the next run (it is in the database), and reading the board's ads still works.
+        n, calls, logs = self.reveal([["514-555-0404"]])
+        self.assertEqual((n, calls), (0, []))
+        self.assertEqual(self.read_board(force=True, reveal=False)["boards_read"], 1)
 
-    def test_reveal_needs_the_contact_permission_and_robots(self):
-        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
-        self.conn.execute("UPDATE leads SET bucket='review', phone=NULL, phone_via=NULL")
-        opened, open_browser, reveal_one = self.browser([["514-555-0303"]] * 3)
+    def test_reveal_needs_the_board_permission_and_obeys_robots_and_limits(self):
+        self.read_board()
+        for off in ({"allow_contact_capture": False}, {"scan_enabled": False}, {"expires": "2020-01-01"}):
+            self.settings["permissions"]["kijiji"].update({"scan_enabled": True, "expires": "",
+                                                           "allow_contact_capture": True, **off})
+            self.assertEqual(self.reveal([["514-555-0303"]] * 3)[:2], (0, []))
+        self.settings["permissions"]["kijiji"].update(scan_enabled=True, expires="", allow_contact_capture=True)
+        # Only after a read of that board, never after an alerts-only read.
+        n, calls, _ = self.reveal([["514-555-0303"]] * 3, only=["alerts"])
+        self.assertEqual((n, calls), (0, []))
+        n, calls, logs = self.reveal([["514-555-0303"]] * 3,
+                                     fetcher=self.real_clock_fetcher(FakeWeb({}, robots="User-agent: *\nDisallow: /v-")))
+        self.assertEqual(n, 0)
+        self.assertNotIn("page", [c[0] for c in calls])
+        # The permission's hourly limit counts the scanner's pages and the reveal's together.
+        self.settings["permissions"]["kijiji"]["max_requests_per_hour"] = scan.requests_last_hour(self.conn, "kijiji") + 1
+        n, calls, _ = self.reveal([["514-555-0303"], ["438-555-0404"]])
+        self.assertEqual(len([c for c in calls if c[0] == "page"]), 1)
+        self.assertEqual(self.reveal([["438-555-0404"]])[:2], (0, []))
+
+    def test_rate_limit_cools_the_board_and_a_failed_page_is_tried_again_a_few_times(self):
+        self.read_board()
+        n, calls, logs = self.reveal([phones.Skip("answered 500"), phones.Cooling("asked the desk to slow down (429)", 600)])
+        self.assertEqual(n, 0)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM leads WHERE phone_checked_at IS NOT NULL").fetchone()[0], 0)
+        self.assertIn("slow down", phones.stopped(self.conn, "kijiji"))
+        with self.assertRaises(http.HostCooling):  # the scanner holds off too
+            self.fetcher._check_cooling("www.kijiji.ca")
+        # A removed ad is never opened again; one that keeps failing is given up after three tries.
+        self.conn.execute("DELETE FROM reveal_log")
+        self.fetcher.state["cooling"].clear()
+        self.reveal([phones.Gone("ad removed (404)"), phones.Skip("timeout"), ["514-555-0303"]])
+        unchecked = lambda: [r[0] for r in self.conn.execute("SELECT id FROM leads WHERE phone_checked_at IS NULL")]  # noqa: E731
+        self.assertEqual(len(unchecked()), 1)  # the removed ad and the revealed one are done
+        self.reveal([phones.Skip("timeout")], reset=False)
+        self.assertEqual(len(unchecked()), 1)
+        self.reveal([phones.Skip("timeout")], reset=False)  # third failure: given up
+        self.assertEqual(unchecked(), [])
+        n, calls, _ = self.reveal([], reset=False)
+        self.assertEqual((n, calls), (0, []))
+
+    def test_one_reveal_at_a_time(self):
+        import fcntl
+        self.read_board()
+        held = open(Path(self.tmp.name) / "phones.lock", "w")
+        fcntl.flock(held, fcntl.LOCK_EX)
+        try:
+            n, calls, logs = self.reveal([["514-555-0303"]])
+        finally:
+            held.close()
+        self.assertEqual((n, calls), (0, []))
+        self.assertTrue(any("another reveal" in l for l in logs))
+
+    def test_blanking_keeps_the_checks_and_leaves_hand_captures_alone(self):
+        url = kijiji.search_url(self.settings["kijiji"]["searches"][0])
+        self.web.pages[url] = (200, {}, page_html([
+            ad(7, "4 1/2 Lachine", "Lachine, QC H8S 1A1", poster="g",
+               desc="Beau grand logement rénové. Je cherche un locataire sérieux. Appelez 514-555-0177."),
+            ad(8, "5 1/2 Lachine", "Lachine, QC H8S 1A1", poster="h", desc="Info: 438 555 0188")]))
         self.settings["permissions"]["kijiji"]["allow_contact_capture"] = False
-        self.assertEqual(phones.reveal(self.conn, self.settings, fetcher_for(self.web), print, open_browser, reveal_one), 0)
-        self.assertEqual(opened, [])
-        self.settings["permissions"]["kijiji"]["allow_contact_capture"] = True
-        web = FakeWeb({}, robots="User-agent: *\nDisallow: /v-")
-        self.assertEqual(phones.reveal(self.conn, self.settings, fetcher_for(web), lambda *_: None, open_browser,
-                                       reveal_one), 0)
+        checker = feed.checker_for(self.conn, self.settings)
+        checker.phones.add("4385550188")  # a known broker's number
+        with unittest.mock.patch.object(feed, "checker_for", lambda conn, settings=None: checker):
+            self.read_board()
+            # The landlord's "je cherche un locataire" is not read across into the title as a tenant's ad.
+            self.assertEqual(self.conn.execute("SELECT bucket FROM leads WHERE id='kijiji:7'").fetchone()[0], "review")
+            self.assertEqual(self.conn.execute("SELECT bucket FROM leads WHERE id='kijiji:8'").fetchone()[0], "broker")
+            # Rechecked from the blanked text, the broker match found in the original still stands.
+            feed.recheck_all(self.conn)
+            self.assertEqual(self.conn.execute("SELECT bucket FROM leads WHERE id='kijiji:8'").fetchone()[0], "broker")
+            # Stefan's own capture keeps what he pasted.
+            feed.add_manual(self.conn, {"url": "https://www.kijiji.ca/v-apartments-condos/x/99", "title": "4 1/2",
+                                        "text": "Owner, call 438 555 0199", "address": "Lachine, QC H8S 1A1"})
+        self.assertIn("438 555 0199", self.conn.execute("SELECT snippet FROM leads WHERE url LIKE '%/99'").fetchone()[0])
 
     def test_revealed_number_is_not_replaced_from_text(self):
-        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+        self.read_board()
         phones.save(self.conn, "kijiji:2", ["514-555-0303"], "revealed")
         self.assertFalse(phones.save(self.conn, "kijiji:2", ["438-555-0000"], "ad text"))
         self.assertEqual(self.phone("kijiji:2"), ("514-555-0303", "revealed"))
-
 
 if __name__ == "__main__":
     unittest.main()

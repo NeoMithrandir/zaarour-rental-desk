@@ -53,6 +53,12 @@ def recheck_all(conn):
     """Re-run the checks on undecided leads, e.g. after adding brokers or loading a Centris export."""
     checker = checker_for(conn)
     rows = [db.lead_dict(r) for r in conn.execute("SELECT * FROM leads WHERE status='new'")]
+    for lead in rows:
+        # A scanned ad is stored with its numbers and emails blanked out: keep what the first check found in them.
+        if "removed]" in (lead.get("title") or "") + (lead.get("snippet") or ""):
+            lead["number_hits"] = [h for f in lead["flags"] if f["code"] == "broker"
+                                   for h in ("Phone matches a known broker", "Email matches a known broker")
+                                   if h in f["text"]]
     return process(conn, rows, checker)
 
 

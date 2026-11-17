@@ -10,7 +10,6 @@ import time
 from datetime import date, datetime, timedelta
 
 from . import db
-from .config import ROOT
 from .sources import details, http, phones
 
 DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360,
@@ -43,23 +42,19 @@ def permission(settings, source, today=None):
 
 
 def letter_pending(settings, source):
-    """True while a board is read on someone's statement and its letter itself is not filed yet.
-
-    `letter` then holds that statement; it stops being pending once it names a file that exists."""
-    letter = str(((settings.get("permissions") or {}).get(source) or {}).get("letter") or "").strip()
-    if source not in SCANNERS or not letter:
-        return False
-    try:
-        return not (ROOT / letter).is_file()  # an absolute path stays absolute
-    except OSError:  # a long statement is no file name
-        return True
+    """True while a board is read on someone's statement and its letter itself is not filed yet
+    (`letter_pending` in its permissions entry; `letter` then holds the statement)."""
+    p = (settings.get("permissions") or {}).get(source) or {}
+    return source in SCANNERS and bool(p.get("letter_pending"))
 
 
 def requests_last_hour(conn, source, now=None):
+    """Requests to a board in the last hour: its scanner's pages and the ad pages opened for phone numbers."""
     since = ((now or datetime.now()) - timedelta(hours=1)).isoformat(timespec="seconds")
     r = conn.execute("SELECT COALESCE(SUM(requests), 0) FROM scan_runs WHERE source=? AND finished_at>?",
                      (source, since)).fetchone()
-    return r[0]
+    p = conn.execute("SELECT COALESCE(SUM(pages), 0) FROM reveal_log WHERE board=? AND at>?", (source, since)).fetchone()
+    return r[0] + p[0]
 
 
 class Budget:
@@ -108,8 +103,9 @@ def due(conn, settings, force=False, now=None):
     return [b["source"] for b in board_status(conn, settings, now) if not b["waiting"] and (force or not b["fresh"])]
 
 
-def run(conn, settings, force=False, log=print, fetcher=None, only=None):
-    """Read every stale board (or every board with force) and store new ads. Returns counts."""
+def run(conn, settings, force=False, log=print, fetcher=None, only=None, reveal=True):
+    """Read every stale board (or every board with force) and store new ads. Returns counts, with the boards
+    read in `.boards`. With reveal, then look up landlords' numbers on those boards where allowed (phones.py)."""
     from .feed import SOURCES, checker_for, process  # feed imports this module
     from collections import Counter
     fetcher = fetcher or http.default_fetcher(settings)
@@ -152,6 +148,12 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None):
         except Exception as e:  # one board failing never stops the others
             ok, error = 0, str(e)
             log(f"  ! {name} failed: {e}")
+        for lead in leads:
+            # Numbers and emails are blanked out of what is stored; the checks (and, where the board's permission
+            # covers contact details, sources/phones.py) see the original once, in memory.
+            lead.setdefault("check_text", lead.get("snippet") or "")
+            lead["check_title"] = lead.get("title") or ""
+            lead["snippet"], lead["title"] = details.redact(lead.get("snippet")), details.redact(lead.get("title"))
         counts = process(conn, leads, checker) if leads else Counter()
         if leads:
             phones.keep_printed(conn, name, leads, settings)
@@ -161,15 +163,27 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None):
                      (name, started, db.now(), ok, len(leads), counts.get("new", 0),
                       getattr(fetcher, "requests", 0) - req0, getattr(fetcher, "not_modified", 0) - nm0, error))
         conn.commit()
-    if boards and hasattr(fetcher, "robots"):
-        try:
-            total["phones_revealed"] = phones.reveal(conn, settings, fetcher, log)
-        except Exception as e:  # never lose the read over it
-            log(f"  ! Phone numbers: {e}")
     if hasattr(fetcher, "save"):
         fetcher.save()
     total["boards_read"] = len(boards)
+    total.boards = boards
+    if reveal:
+        reveal_phones(conn, settings, fetcher, log, boards)
     return total
+
+
+def reveal_phones(conn, settings, fetcher, log, boards):
+    """Landlords' numbers behind show-number buttons, on the boards just read (never after an alerts-only read)."""
+    if not any(b in SCANNERS for b in boards) or not hasattr(fetcher, "robots"):
+        return 0
+    try:
+        return phones.reveal(conn, settings, fetcher, log, only=boards)
+    except Exception as e:  # never lose the read over it
+        log(f"  ! Phone numbers: {e}")
+        return 0
+    finally:
+        if hasattr(fetcher, "save"):
+            fetcher.save()
 
 
 class Scanner:
@@ -201,11 +215,15 @@ class Scanner:
         def work():
             conn = self.connect()
             try:
-                counts = run(conn, settings, force=force, log=self._log)
+                counts = run(conn, settings, force=force, log=self._log, reveal=False)
                 self.status["last"] = {"at": db.now(), "new": counts.get("new", 0), "review": counts.get("review", 0),
                                        "boards": counts.get("boards_read", 0)}
                 if after:
                     after(conn, settings)
+                # Slow on purpose (ads well apart): the new ads are shown first, but the next read waits for it,
+                # so the two never talk to a board at once or keep separate cool-offs.
+                self.status["running"] = False
+                reveal_phones(conn, settings, http.default_fetcher(), self._log, counts.boards)
             except Exception as e:  # never take the review screen down with it
                 self._log(f"! Reading stopped: {e}")
             finally:

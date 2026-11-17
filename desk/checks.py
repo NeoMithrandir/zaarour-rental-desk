@@ -147,8 +147,9 @@ class Checker:
     def run(self, lead):
         """Return (area, flags) for a lead dict with title/snippet/address/price/poster_type/poster_id."""
         flags = []
-        # check_text: an opened ad's text before its phone numbers were blanked out (never stored).
-        text = fold(" ".join([lead.get("title", ""), lead.get("snippet", ""), lead.get("check_text", "")]))
+        # check_title / check_text: a scanned ad's title and text before phone numbers were blanked out (never stored).
+        text = fold("\n".join([lead.get("check_title") or lead.get("title") or "",
+                               lead.get("check_text") or lead.get("snippet") or ""]))
 
         if TENANT_RE.search(text):
             flags.append({"code": "tenant_ad", "level": "hide", "text": "Tenant ad (lease transfer, sublet or room)"})
@@ -165,12 +166,13 @@ class Checker:
             flags.append({"code": "area_note", "level": "info", "text": self.notes[area]})
 
         hits = [label for rx, label in self.keywords if rx.search(text)]
-        phones = {"".join(m.groups()) for m in PHONE_RE.finditer(text)}
+        phones = {"".join(m.groups()) for m in PHONE_RE.finditer(text + "\n" + (lead.get("phone") or ""))}
         emails = {e.lower() for e in EMAIL_RE.findall((lead.get("snippet") or "") + " " + (lead.get("check_text") or ""))}
         if phones & self.phones:
             hits.append("Phone matches a known broker")
         if emails & self.emails:
             hits.append("Email matches a known broker")
+        hits += lead.get("number_hits") or []  # from a check of the original text, kept when rechecking it blanked
         pid = lead.get("poster_id")
         if pid and pid in self.poster_ids:
             hits.append(f"Poster marked before: {self.poster_ids[pid]}")

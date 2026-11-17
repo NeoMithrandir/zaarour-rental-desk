@@ -36,8 +36,9 @@ cd rentals-desk && python3 -m desk fetch --force
 
 All six built scanners (Kijiji, Craigslist, LogisQuébec, liv.rent, Appartogo, LesPAC) are on in `config/settings.json`,
 on Nesi's statement of 17 Nov that Zaarour holds written permission from each board; the letters are to be uploaded.
-Until a board's `letter` names a file that exists, the desk shows "Permission letter pending" for it under the review
-screen. When a letter arrives, save it in `data/permissions/`, put its path in `letter`, and copy any limits it sets.
+Each entry has `letter_pending: true`, so the desk shows "Permission letter pending" for those boards under the review
+screen. When a letter arrives, save it in `data/permissions/`, put its path in `letter`, set `letter_pending` to
+false, and copy any limits it sets.
 The safeguards are unchanged: honest user agent, robots.txt, the spacing and limits above, back-off, and a stop at any
 CAPTCHA, bot check or sign-in.
 
@@ -45,17 +46,27 @@ CAPTCHA, bot check or sign-in.
 
 The permission requests said no contact details would be collected (point 4), so phone numbers are a separate switch
 per board: `permissions.<board>.allow_contact_capture` (default false) plus `contact_basis`, which says where the
-board's permission covers contact details. The desk ignores the switch while `contact_basis` is empty. With it on:
+board's permission covers contact details. The desk ignores the switch while `contact_basis` is empty, and whenever
+the board itself may not be read (`scan_enabled` off, or the permission expired). With it on:
 
 - numbers the poster wrote in the ad's title or text are kept on the lead as the ad is read, with no extra request;
-- on boards listed under `contacts.reveal`, the desk opens ads waiting in review that have no number, in a local
-  browser (Playwright: `python3 -m pip install playwright`, then `python3 -m playwright install chromium`), and clicks
-  the board's show-number button: at most 10 ads per board per read, 90 s apart, honest user agent, robots.txt obeyed,
-  never signed in. If the click meets a CAPTCHA, a bot check (including an invisible reCAPTCHA or Cloudflare check
-  fired by the click) or a sign-in, it keeps nothing from that page and leaves the reveal alone on that board for 30
-  days. Reading the board's search pages carries on. Run it supervised with `python3 -m desk phones`.
+- on boards listed under `contacts.reveal`, right after that board is read, the desk opens ads waiting in review that
+  have no number, in a local browser (Playwright: `python3 -m pip install playwright`, then
+  `python3 -m playwright install chromium`), and clicks the board's show-number button: at most 10 ads per board per
+  read, at least 90 s apart across runs (more if the permission or robots.txt asks), counted against the permission's
+  `max_requests_per_hour`, honest user agent, robots.txt obeyed, never signed in, one reveal at a time. If the ad page
+  or the click meets a CAPTCHA, a bot check (including an invisible reCAPTCHA or Cloudflare check fired by the click),
+  a refusal or a sign-in, it keeps nothing from that page and leaves the reveal alone on that board for 30 days; a
+  429/503 pauses it, and the scanner, for the time the board asks. It reads the number only next to the button, spaces
+  its first page from the scanner's last request, gives up on an ad after 3 failed tries (at once if it was removed),
+  and runs under the same lock as the scanner, so the two never talk to a board at once. Every page it opens, and
+  every stop, is in the `reveal_log` table. Reading the board's search pages carries on. Run it supervised with
+  `python3 -m desk phones`.
 
-Numbers stay in `data/desk.sqlite3` on this computer. The review card shows them with a call link and where each came
+Whatever the switch, phone numbers and emails are blanked out of every scanned ad's stored title and text (they used
+to be blanked only on Craigslist and LogisQuébec); the checks still see the original once, and a recheck keeps a
+broker match found in it. Ads Stefan captures or pastes himself, and alert emails, keep their text. Ads stored before
+17 Nov keep their text as it was until the board lists them again. Numbers stay in `data/desk.sqlite3` on this computer. The review card shows them with a call link and where each came
 from ("from the ad text" or "shown on the board").
 
 What each board allows, checked on one live ad page per board on 17 Nov:

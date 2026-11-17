@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     ads INTEGER, new INTEGER, requests INTEGER, not_modified INTEGER, error TEXT
 );
 CREATE INDEX IF NOT EXISTS scan_runs_source ON scan_runs(source, finished_at);
+CREATE TABLE IF NOT EXISTS reveal_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    board TEXT, at TEXT, pages INTEGER, numbers INTEGER, stop_until TEXT, note TEXT, lead_id TEXT
+);
+CREATE INDEX IF NOT EXISTS reveal_log_board ON reveal_log(board, at);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id TEXT, at TEXT, action TEXT, reason TEXT, template TEXT, edited INTEGER, signals TEXT
