@@ -1,6 +1,6 @@
 # Rentals desk
 
-Stefan's daily tool for the 2027 rental plan ([plan](../docs/2027-growth-action-plan.md)). It covers:
+Stefan's daily tool for the 2027 rental plan (the plan lives in the separate Zaarour repo, `docs/2027-growth-action-plan.md`). It covers:
 
 | Plan item | What it does here |
 |---|---|
@@ -48,7 +48,7 @@ Other commands: `python3 -m desk fetch` (read stale boards and stop; `--force` r
 `python3 -m desk learn` (rewrite `learnings/` now),
 `python3 -m desk recheck` (re-run checks after editing brokers or loading a Centris export),
 `python3 -m desk export-leases` (the renewal tracker to CSV).
-`python3 -m desk import-leases [--dry-run] [file]` loads leases from outside the desk (default: everything in `data/import/inbox/`, which the morning run also picks up). The data shape is in [docs/lease-import-spec.md](../docs/lease-import-spec.md).
+`python3 -m desk import-leases [--dry-run] [file]` loads leases from outside the desk (default: everything in `data/import/inbox/`, which the morning run also picks up). The data shape is in [docs/lease-import-spec.md](docs/lease-import-spec.md).
 
 ## Tuning
 

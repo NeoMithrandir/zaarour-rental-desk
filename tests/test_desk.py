@@ -309,7 +309,7 @@ class ReviewScreenTests(unittest.TestCase):
             self.assertEqual(res["counts"].get(tab, 0), len(res["leads"]), tab)
 
 
-SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "examples" / "leases-sample.jsonl"
+SAMPLE = Path(__file__).resolve().parents[1] / "docs" / "examples" / "leases-sample.jsonl"
 
 
 class LeaseImportTests(unittest.TestCase):
