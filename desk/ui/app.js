@@ -104,6 +104,13 @@
       + `<span class="kf">${esc(SOURCES[l.source] || l.source)}</span>` + (l.phase === 2 ? `<span class="kf">Phase 2</span>` : "");
   }
 
+  // The landlord's number, kept only on boards whose permission covers contact details.
+  function phoneLine(l) {
+    if (!l.phone) return "";
+    const nums = l.phone.split(", ").map((p) => `<a href="tel:+1${p.replace(/-/g, "")}">${esc(p)}</a>`).join(" · ");
+    return `<p class="phone">☎ ${nums} <small class="muted">${l.phone_via === "revealed" ? "shown on the board" : "from the ad text"}</small></p>`;
+  }
+
   function centrisLink(l) {
     return "https://www.google.com/search?q=" + encodeURIComponent('"' + (l.address || l.title) + '" centris OR realtor.ca');
   }
@@ -225,6 +232,7 @@
             <h2 class="title">${esc(l.title)}</h2>
             <p class="where">${esc(l.area || "Area unknown")}${l.address ? ` · ${esc(l.address)}` : ""}</p>
             <div class="keyfacts">${keyFacts(l)}</div>
+            ${phoneLine(l)}
             ${l.snippet ? `<p class="snippet">${esc(l.snippet)}</p>` : ""}
             ${fl.chips ? `<div class="tags">${fl.chips}</div>` : ""}
             ${others(l)}
@@ -322,7 +330,7 @@
         ${sel ? `<input type="checkbox" class="pick" ${selected.has(l.id) ? "checked" : ""} aria-label="Select">` : ""}
         ${l.image ? `<img src="${esc(l.image)}" alt="" loading="lazy">` : `<div class="noimg"></div>`}
         <div class="rt"><a class="t" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
-          <div class="rm">${broker ? `<span class="tag red">Likely broker</span>` : ""}${keyFacts(l)}<span class="muted">${esc(l.area || "")}</span></div></div>
+          <div class="rm">${broker ? `<span class="tag red">Likely broker</span>` : ""}${keyFacts(l)}${l.phone ? `<span class="kf">☎ ${esc(l.phone.split(", ")[0])}</span>` : ""}<span class="muted">${esc(l.area || "")}</span></div></div>
         <div class="rp">${money(l.price)}</div>
         <div class="ra">${rowActions(l)}</div>
         ${tab === "sent" && l._open ? `<div class="rx">${composer(l)}</div>` : ""}
@@ -665,7 +673,7 @@
   // ------------------------------------------------------------ background reading of the boards
   // The desk opens on what it already has; stale boards are read behind it. New ads join the counts
   // without moving the ad Stefan is looking at.
-  const NAMES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", alerts: "alert emails" };
+  const NAMES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", appartogo: "Appartogo", lespac: "LesPAC", alerts: "alert emails" };
   const ago = (s) => { const m = Math.round((Date.now() - Date.parse(s)) / 60000); return isNaN(m) ? "" : m < 2 ? "just now" : m < 90 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
   let scanWasRunning = false, scanTimer = null;
   async function pollScan() {
@@ -683,7 +691,9 @@
     }
     const read = (s.boards || []).filter((b) => b.last_ok && !b.waiting).map((b) => `${NAMES[b.source] || b.source} ${ago(b.last_ok)}`);
     const failed = (s.boards || []).filter((b) => b.last_error).map((b) => NAMES[b.source] || b.source);
-    bar.textContent = (read.length ? `Boards last read: ${read.join(", ")}.` : "") + (failed.length ? ` Couldn't read ${failed.join(", ")} last time.` : "");
+    const pending = (s.boards || []).filter((b) => b.letter_pending && !b.waiting).map((b) => NAMES[b.source] || b.source);
+    bar.textContent = (read.length ? `Boards last read: ${read.join(", ")}.` : "") + (failed.length ? ` Couldn't read ${failed.join(", ")} last time.` : "")
+      + (pending.length ? ` Permission letter pending: ${pending.join(", ")}.` : "");
     bar.hidden = !bar.textContent;
     if (scanWasRunning) {
       scanWasRunning = false;

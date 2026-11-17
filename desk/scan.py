@@ -10,7 +10,8 @@ import time
 from datetime import date, datetime, timedelta
 
 from . import db
-from .sources import details, http
+from .config import ROOT
+from .sources import details, http, phones
 
 DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360,
                      "lespac": 180}
@@ -39,6 +40,19 @@ def permission(settings, source, today=None):
     if expires and date.fromisoformat(expires) < (today or date.today()):
         return f"permission expired on {expires}"
     return None
+
+
+def letter_pending(settings, source):
+    """True while a board is read on someone's statement and its letter itself is not filed yet.
+
+    `letter` then holds that statement; it stops being pending once it names a file that exists."""
+    letter = str(((settings.get("permissions") or {}).get(source) or {}).get("letter") or "").strip()
+    if source not in SCANNERS or not letter:
+        return False
+    try:
+        return not (ROOT / letter).is_file()  # an absolute path stays absolute
+    except OSError:  # a long statement is no file name
+        return True
 
 
 def requests_last_hour(conn, source, now=None):
@@ -84,7 +98,9 @@ def board_status(conn, settings, now=None):
         fresh = bool(ok_at) and datetime.fromisoformat(ok_at) > now - timedelta(minutes=freshness(settings, source))
         out.append({"source": source, "last_ok": ok_at, "fresh": fresh, "window_minutes": freshness(settings, source),
                     "last_error": last["error"] if last and not last["ok"] else None,
-                    "waiting": permission(settings, source, now.date())})
+                    "waiting": permission(settings, source, now.date()),
+                    "letter_pending": letter_pending(settings, source),
+                    "phones": phones.allowed(settings, source)})
     return out
 
 
@@ -137,12 +153,19 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None):
             ok, error = 0, str(e)
             log(f"  ! {name} failed: {e}")
         counts = process(conn, leads, checker) if leads else Counter()
+        if leads:
+            phones.keep_printed(conn, name, leads, settings)
         total.update(counts)
         conn.execute("INSERT INTO scan_runs (source, started_at, finished_at, ok, ads, new, requests, not_modified, error) "
                      "VALUES (?,?,?,?,?,?,?,?,?)",
                      (name, started, db.now(), ok, len(leads), counts.get("new", 0),
                       getattr(fetcher, "requests", 0) - req0, getattr(fetcher, "not_modified", 0) - nm0, error))
         conn.commit()
+    if boards and hasattr(fetcher, "robots"):
+        try:
+            total["phones_revealed"] = phones.reveal(conn, settings, fetcher, log)
+        except Exception as e:  # never lose the read over it
+            log(f"  ! Phone numbers: {e}")
     if hasattr(fetcher, "save"):
         fetcher.save()
     total["boards_read"] = len(boards)

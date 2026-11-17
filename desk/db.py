@@ -79,6 +79,10 @@ def connect(path=None):
     for table, col in (("leads", "approach"), ("drafts", "approach"), ("drafts", "picked_by"), ("events", "approach")):
         if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+    # Landlord phone numbers, only on boards whose permission covers contact details (sources/phones.py).
+    for col in ("phone", "phone_via", "phone_checked_at"):
+        if col not in {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}:
+            conn.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT")
     return conn
 
 

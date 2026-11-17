@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from desk import alerts, capture, db, feed, learn, scan  # noqa: E402
 from desk.checks import Checker  # noqa: E402
 from desk.config import CONFIG_DIR, load_areas, load_settings  # noqa: E402
-from desk.sources import appartogo, craigslist, details, http, kijiji, lespac  # noqa: E402
+from desk.sources import appartogo, craigslist, details, http, kijiji, lespac, phones  # noqa: E402
 from tests.test_desk import FIXTURE, BoardTests, ad, page_html  # noqa: E402
 
 KIJIJI_ROBOTS = """User-Agent: Mediapartners-Google
@@ -397,6 +397,108 @@ class LearningTests(unittest.TestCase):
         self.assertIn("tentative", hooks)  # 20 ads per word is under min_sample
         f = json.loads((out / "findings.json").read_text(encoding="utf-8"))
         self.assertEqual(f["platforms"]["kijiji"]["approved"], 20)
+
+
+class PhoneTests(unittest.TestCase):
+    """Landlords' numbers: kept only where the board's permission covers contact details."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        self.settings["sources"] = ["kijiji"]
+        self.settings["permissions"] = {"kijiji": {"scan_enabled": True, "letter": "Nesi's statement, 17 Nov 2026",
+                                                   "allow_contact_capture": True, "contact_basis": "letter, point 4"}}
+        self.settings["kijiji"] = {"max_pages_per_search": 1,
+                                   "searches": [{"name": "Island", "slug": "ville-de-montreal", "location_id": 1700281}]}
+        self.settings["contacts"] = {"reveal": {"kijiji": {"button": "Reveal phone number"}}, "max_reveals_per_run": 5,
+                                     "min_interval_seconds": 90, "blocked_days": 30}
+        url = kijiji.search_url(self.settings["kijiji"]["searches"][0])
+        self.web = FakeWeb({url: (200, {}, page_html([
+            ad(1, "4 1/2 Lachine, call 514-555-0101", "Lachine, QC H8S 1A1", poster="a",
+               desc="Or text (438) 555 0199. 1 650 $ for a 4 1/2."),
+            ad(2, "5 1/2 Lachine", "Lachine, QC H8S 1A1", poster="b")]))})
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def phone(self, lead_id):
+        r = self.conn.execute("SELECT phone, phone_via FROM leads WHERE id=?", (lead_id,)).fetchone()
+        return (r["phone"], r["phone_via"])
+
+    def browser(self, results):
+        opened = []
+
+        def open_browser(ua):
+            opened.append(ua)
+            return (type("Ctx", (), {"new_page": lambda self: type("P", (), {"close": lambda self: None})()})(),
+                    lambda: opened.append("closed"))
+
+        def reveal_one(page, url, button, wait=None):
+            r = results.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        return opened, open_browser, reveal_one
+
+    def test_numbers_in_text(self):
+        self.assertEqual(phones.in_text("Call 514Two66One355 or 1 (514) 266-1355, 1 650 $ for a 4 1/2"),
+                         ["514-266-1355"])
+        self.assertEqual(phones.in_text("Lot 1234567890"), [])  # no area code starts with 1
+
+    def test_printed_numbers_kept_only_with_contact_permission(self):
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+        self.assertEqual(self.phone("kijiji:1"), ("514-555-0101, 438-555-0199", "ad text"))
+        self.assertEqual(self.phone("kijiji:2"), (None, None))
+        self.assertEqual(scan.board_status(self.conn, self.settings)[0]["letter_pending"], True)
+        for off in ({"allow_contact_capture": False}, {"contact_basis": ""}):
+            tmp = tempfile.TemporaryDirectory()
+            conn = db.connect(Path(tmp.name) / "t.sqlite3")
+            self.settings["permissions"]["kijiji"].update({"allow_contact_capture": True, "contact_basis": "x", **off})
+            scan.run(conn, self.settings, force=True, log=lambda *_: None, fetcher=fetcher_for(self.web))
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL").fetchone()[0], 0)
+            conn.close()
+            tmp.cleanup()
+
+    def test_reveal_clicks_a_few_well_spaced_and_stops_at_a_bot_check(self):
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+        self.conn.execute("UPDATE leads SET bucket='review', phone=NULL, phone_via=NULL")
+        f, logs = fetcher_for(self.web), []
+        opened, open_browser, reveal_one = self.browser([["514-555-0303"], phones.Stop("runs a bot check")])
+        n = phones.reveal(self.conn, self.settings, f, logs.append, open_browser, reveal_one, sleep=self.web.sleep)
+        self.assertEqual(n, 1)
+        self.assertIn("ZaarourRentalsDesk", opened[0])  # the honest user agent
+        self.assertEqual(opened[-1], "closed")
+        self.assertEqual(self.web.slept[-1], 90)
+        revealed = self.conn.execute("SELECT id FROM leads WHERE phone_via='revealed'").fetchall()
+        self.assertEqual(len(revealed), 1)
+        self.assertTrue(any("does not get past" in l for l in logs))
+        # The reveal is off for that board now; reading its search pages is not.
+        with self.assertRaises(http.HostCooling):
+            f._check_cooling("www.kijiji.ca show-number")
+        f._check_cooling("www.kijiji.ca")
+        opened, open_browser, reveal_one = self.browser([["514-555-0404"]])
+        self.conn.execute("UPDATE leads SET phone_checked_at=NULL")
+        self.assertEqual(phones.reveal(self.conn, self.settings, f, logs.append, open_browser, reveal_one), 0)
+
+    def test_reveal_needs_the_contact_permission_and_robots(self):
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+        self.conn.execute("UPDATE leads SET bucket='review', phone=NULL, phone_via=NULL")
+        opened, open_browser, reveal_one = self.browser([["514-555-0303"]] * 3)
+        self.settings["permissions"]["kijiji"]["allow_contact_capture"] = False
+        self.assertEqual(phones.reveal(self.conn, self.settings, fetcher_for(self.web), print, open_browser, reveal_one), 0)
+        self.assertEqual(opened, [])
+        self.settings["permissions"]["kijiji"]["allow_contact_capture"] = True
+        web = FakeWeb({}, robots="User-agent: *\nDisallow: /v-")
+        self.assertEqual(phones.reveal(self.conn, self.settings, fetcher_for(web), lambda *_: None, open_browser,
+                                       reveal_one), 0)
+
+    def test_revealed_number_is_not_replaced_from_text(self):
+        scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(self.web))
+        phones.save(self.conn, "kijiji:2", ["514-555-0303"], "revealed")
+        self.assertFalse(phones.save(self.conn, "kijiji:2", ["438-555-0000"], "ad text"))
+        self.assertEqual(self.phone("kijiji:2"), ("514-555-0303", "revealed"))
 
 
 if __name__ == "__main__":

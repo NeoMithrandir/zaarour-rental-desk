@@ -32,6 +32,43 @@ check the ads look right:
 cd rentals-desk && python3 -m desk fetch --force
 ```
 
+## Status, 17 Nov 2026
+
+All six built scanners (Kijiji, Craigslist, LogisQuébec, liv.rent, Appartogo, LesPAC) are on in `config/settings.json`,
+on Nesi's statement of 17 Nov that Zaarour holds written permission from each board; the letters are to be uploaded.
+Until a board's `letter` names a file that exists, the desk shows "Permission letter pending" for it under the review
+screen. When a letter arrives, save it in `data/permissions/`, put its path in `letter`, and copy any limits it sets.
+The safeguards are unchanged: honest user agent, robots.txt, the spacing and limits above, back-off, and a stop at any
+CAPTCHA, bot check or sign-in.
+
+## Landlord phone numbers (off until the permission covers contact details)
+
+The permission requests said no contact details would be collected (point 4), so phone numbers are a separate switch
+per board: `permissions.<board>.allow_contact_capture` (default false) plus `contact_basis`, which says where the
+board's permission covers contact details. The desk ignores the switch while `contact_basis` is empty. With it on:
+
+- numbers the poster wrote in the ad's title or text are kept on the lead as the ad is read, with no extra request;
+- on boards listed under `contacts.reveal`, the desk opens ads waiting in review that have no number, in a local
+  browser (Playwright: `python3 -m pip install playwright`, then `python3 -m playwright install chromium`), and clicks
+  the board's show-number button: at most 10 ads per board per read, 90 s apart, honest user agent, robots.txt obeyed,
+  never signed in. If the click meets a CAPTCHA, a bot check (including an invisible reCAPTCHA or Cloudflare check
+  fired by the click) or a sign-in, it keeps nothing from that page and leaves the reveal alone on that board for 30
+  days. Reading the board's search pages carries on. Run it supervised with `python3 -m desk phones`.
+
+Numbers stay in `data/desk.sqlite3` on this computer. The review card shows them with a call link and where each came
+from ("from the ad text" or "shown on the board").
+
+What each board allows, checked on one live ad page per board on 17 Nov:
+
+| Board | Number printed in the ad | Show-number button | Reveal by the desk |
+|---|---|---|---|
+| Kijiji | Often (title or description) | "Reveal phone number" on ad pages | Listed in `contacts.reveal`. Not tried yet: if Kijiji puts a sign-in or a bot check behind it, the desk stops on its first try. |
+| LogisQuébec | Sometimes | Yes, but the click runs a reCAPTCHA before the number is sent | No: that is a bot check. Only with LogisQuébec's own access (a key or an allowlist). |
+| Craigslist | Rarely: Craigslist hides numbers behind "show contact info" | Goes through its reply page, which has a CAPTCHA | No. |
+| LesPAC | Sometimes | None seen; contact is a form with a reCAPTCHA | Text only. |
+| Appartogo | Rarely (managed buildings) | None | Text only. |
+| liv.rent | No | No: contact is in-app messaging behind a sign-in | No. |
+
 ## What every permission request should ask for in writing
 
 Send the same five points to each company. Their answer needs to cover each one, in writing (an email from someone

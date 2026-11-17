@@ -1,4 +1,4 @@
-"""python3 -m desk [morning|serve|fetch|learn|recheck|export-rentals]"""
+"""python3 -m desk [morning|serve|fetch|phones|learn|recheck|export-rentals]"""
 import argparse
 import csv
 import sys
@@ -17,6 +17,7 @@ def main(argv=None):
     s.add_argument("--no-scan", action="store_true", help="don't read any board, just show what the desk has")
     m = sub.add_parser("morning", help="open the review screen at once and read stale boards behind it (what Stefan runs)")
     m.add_argument("--port", type=int, default=8765)
+    sub.add_parser("phones", help="reveal landlords' numbers now, on boards whose permission covers contact details")
     sub.add_parser("learn", help="write the learnings (rentals-desk/learnings/) from Stefan's decisions and outcomes")
     sub.add_parser("recheck", help="re-run the checks after editing brokers or loading a Centris export")
     i = sub.add_parser("import-leases", help="import lease files (default: everything in data/import/inbox)")
@@ -33,6 +34,13 @@ def main(argv=None):
     elif a.cmd == "morning":
         lease_import.import_inbox()
         web.serve(a.port, scan_on_start=True)
+    elif a.cmd == "phones":
+        from .config import load_settings
+        from .sources import http, phones
+        settings = load_settings()
+        fetcher = http.default_fetcher(settings)
+        print(f"Numbers revealed: {phones.reveal(db.connect(), settings, fetcher)}")
+        fetcher.save()
     elif a.cmd == "learn":
         print(f"Learnings written: {learn.write(db.connect())}")
     elif a.cmd == "recheck":
