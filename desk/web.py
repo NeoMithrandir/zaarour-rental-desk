@@ -3,10 +3,12 @@
 Runs on http://127.0.0.1:8765 (this computer only). Standard library only.
 """
 import csv
+import errno
 import html
 import io
 import json
 import mimetypes
+import sys
 import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -620,8 +622,13 @@ SCANNER = scan.Scanner(load_settings)
 def serve(port=8765, open_browser=True, scan_on_start=False):
     """Open the review screen at once on what the desk already has. With scan_on_start, boards whose last
     read is stale are read in the background while Stefan works; the screen shows progress and new ads."""
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}/"
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        if e.errno != errno.EADDRINUSE:
+            raise
+        return _port_taken(port, url, open_browser)
     print(f"Rentals desk running at {url}  (Ctrl+C to stop)")
     settings = load_settings()
     if scan_on_start:
@@ -635,3 +642,29 @@ def serve(port=8765, open_browser=True, scan_on_start=False):
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+
+
+def _port_taken(port, url, open_browser):
+    """Something already listens on the desk's port. If it is the desk, just open it; otherwise say what holds it."""
+    import subprocess
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url + "api/counts", timeout=2) as r:
+            json.load(r)
+        print(f"The desk is already running at {url}  Opening it.")
+        if open_browser:
+            import webbrowser
+            webbrowser.open(url)
+        return
+    except Exception:
+        pass
+    pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"], capture_output=True, text=True).stdout.split()
+    what = ""
+    if pids:
+        what = subprocess.run(["ps", "-o", "command=", "-p", pids[0]], capture_output=True, text=True).stdout.strip()
+    print(f"\nThe desk can't start: another program is using port {port}, which the desk needs.")
+    if what:
+        print(f"  That program is: {what}  (process {pids[0]})")
+        print(f"  To stop it, close the window that started it, or run:  kill {pids[0]}")
+    print("  Then open the desk again.\n")
+    sys.exit(1)
