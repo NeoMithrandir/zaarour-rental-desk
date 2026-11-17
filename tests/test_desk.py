@@ -4,12 +4,12 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import capture, db, drafts, feed, lease_import, lease_scan, leases, outreach, profile, send, tal, web  # noqa: E402
+from desk import approaches, capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, profile, send, tal, web  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import appartogo, craigslist, kijiji, lespac, logisquebec  # noqa: E402
@@ -570,8 +570,11 @@ class DraftTests(unittest.TestCase):
         self.assertEqual(again["text"], d["text"])
         # Approving it unchanged is credited to the draft; an edited one to the draft, marked edited.
         saved = drafts.saved(self.conn, "kijiji:1")
-        self.assertEqual(web.template_used(self.lead, self.settings, d["text"], saved), (d["template"], False))
-        self.assertEqual(web.template_used(self.lead, self.settings, d["text"] + " Merci et bonne journée", saved), (d["template"], True))
+        self.assertIn(d["approach"], [a["id"] for a in approaches.load()])              # written with one way of opening
+        self.assertIn(f'<approach name="{approaches.get(d["approach"])["name"]}">', kw["messages"][0]["content"])
+        self.assertEqual(web.template_used(self.lead, self.settings, d["text"], saved), (d["template"], False, d["approach"]))
+        self.assertEqual(web.template_used(self.lead, self.settings, d["text"] + " Merci et bonne journée", saved),
+                         (d["template"], True, d["approach"]))
 
     def test_too_long_gets_one_shorter_try_and_refusal_is_an_error(self):
         self.settings["message_char_limit"] = 200
@@ -633,6 +636,196 @@ class DraftTests(unittest.TestCase):
         js = send.fill_bookmarklet()
         self.assertTrue(js.startswith("javascript:"))
         self.assertNotIn("click()", js)                                    # it fills, it never presses Send
+
+
+class ApproachTests(unittest.TestCase):
+    """Drafts lean toward the ways of opening that landlords answer, lightly until there is enough to go on."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.settings = load_settings()
+        self.settings["drafts"] = {**self.settings["drafts"], "provider": "claude", "samples_path": str(Path(self.tmp.name) / "none")}
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.ids = [a["id"] for a in approaches.load() if a["active"]]
+        self.n = 0
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def lead(self, **over):
+        self.n += 1
+        lead = {"id": f"kijiji:{self.n}", "source": "kijiji", "title": f"Grand 4 1/2 à Pierrefonds {self.n}", "price": 1650,
+                "area": "Pierrefonds", "lang": "fr", "url": f"https://www.kijiji.ca/v-x/{self.n}", "flags": [], **over}
+        db.upsert_lead(self.conn, lead)
+        return lead
+
+    def sent(self, count, approach, outcome=None, days_ago=30, message="Bonjour, votre logement à louer près du métro."):
+        """`count` messages already sent with this approach, with this outcome (None: nothing marked)."""
+        at = (datetime.now() - timedelta(days=days_ago)).isoformat(timespec="seconds")
+        for _ in range(count):
+            lead = self.lead()
+            self.conn.execute("UPDATE leads SET status='sent', sent_at=?, approach=?, template=?, outcome=?, outcome_at=?, message=? WHERE id=?",
+                              (at, None if approach == "template" else approach, "outreach_fr@x" if approach == "template" else "draft:x",
+                               outcome, at if outcome else None, message, lead["id"]))
+        self.conn.commit()
+
+    def row(self, approach):
+        return next(r for r in approaches.stats(self.conn, self.settings)["rows"] if r["id"] == approach)
+
+    def test_no_results_means_an_even_split_and_every_approach_gets_used(self):
+        st = approaches.stats(self.conn, self.settings)
+        self.assertEqual(st["phase"], "learning")
+        self.assertEqual({round(r["share"], 3) for r in st["rows"] if r["active"]}, {round(1 / len(self.ids), 3)})
+        client = create_client(FakeCreate("Bonjour, votre 4 1/2 m'intéresse. 514-000-0000"))
+        used = [drafts.get_or_write(self.conn, self.lead(), "fr", self.settings, client=client)["approach"]
+                for _ in range(2 * len(self.ids))]
+        self.assertEqual({used.count(i) for i in self.ids}, {2})                       # a fair rotation, not luck
+
+    def test_early_results_lean_only_lightly(self):
+        best, worst = self.ids[0], self.ids[1]
+        self.sent(5, best, "replied")
+        self.sent(5, best, "no_reply")
+        self.sent(10, worst, "no_reply")
+        st = approaches.stats(self.conn, self.settings)
+        share = {r["id"]: r["share"] for r in st["rows"] if r["active"]}
+        self.assertEqual(st["phase"], "learning")
+        self.assertGreater(share[best], share[worst])
+        self.assertLessEqual(share[best], 0.75 / len(self.ids) + 0.25 + 1e-9)          # 5 replies in 10 can't take over
+        self.assertGreaterEqual(share[worst], 0.75 / len(self.ids))
+        self.assertAlmostEqual(sum(share.values()), 1)
+        self.assertEqual(self.row(best)["reading"], "early")
+        self.assertIn("Too early to rely on", st["headline"])
+
+    def test_enough_results_lean_harder_and_keep_testing(self):
+        for i, replies in zip(self.ids, [15, 3, 3, 3]):
+            self.sent(replies, i, "replied")
+            self.sent(30 - replies, i, "no_reply")
+        st = approaches.stats(self.conn, self.settings)
+        share = {r["id"]: r["share"] for r in st["rows"] if r["active"]}
+        self.assertEqual(st["phase"], "leaning")
+        self.assertEqual(st["rows"][0]["id"], self.ids[0])                             # best first
+        self.assertGreater(share[self.ids[0]], 0.6)
+        self.assertGreaterEqual(min(share.values()), 0.25 / len(self.ids))             # nobody drops out of the test
+        self.assertEqual(self.row(self.ids[0])["reading"], "ahead")
+        self.assertIn("is winning", st["headline"])
+        client = create_client(FakeCreate("Bonjour. 514-000-0000"))
+        used = [drafts.get_or_write(self.conn, self.lead(), "fr", self.settings, client=client)["approach"] for _ in range(20)]
+        self.assertGreater(used.count(self.ids[0]), 10)
+        self.assertEqual(set(used), set(self.ids))
+
+    def test_outcomes_quiet_ads_and_the_later_steps(self):
+        a = self.ids[0]
+        self.sent(2, a, None, days_ago=20)          # nothing marked for 20 days: no reply
+        self.sent(3, a, None, days_ago=2)           # too recent to count either way
+        self.sent(1, a, "declined")
+        self.sent(1, a, "presentation")
+        self.sent(1, a, "listing")
+        r = self.row(a)
+        self.assertEqual((r["sent"], r["waiting"], r["n"]), (8, 3, 5))
+        self.assertEqual((r["replied"], r["declined"], r["no_reply"], r["presentation"], r["listing"]), (2, 1, 2, 2, 1))
+        self.assertAlmostEqual(r["points"], 0.8 + 1.0)
+        # The Sent tab's "Said no" button, and the learnings count the quiet ads too.
+        lead = self.lead()
+        web.api_decide(self.conn, lead["id"], {"action": "sent"}, self.settings)
+        self.assertEqual(web.api_decide(self.conn, lead["id"], {"action": "declined"}, self.settings)[1], 200)
+        self.assertEqual(self.conn.execute("SELECT outcome FROM leads WHERE id=?", (lead["id"],)).fetchone()[0], "declined")
+        self.assertEqual(web.api_decide(self.conn, lead["id"], {"action": "set_outcome", "outcome": "nope"}, self.settings)[1], 400)
+        known = [i for i in learn.rows(self.conn) if i["outcome_known"]]
+        self.assertEqual((len(known), sum(i["replied"] for i in known)), (6, 2))
+
+    def test_message_is_credited_to_its_approach(self):
+        lead = self.lead()
+        d = drafts.get_or_write(self.conn, lead, "fr", self.settings, client=create_client(FakeCreate("Bonjour. 514-000-0000")))
+        en = drafts.get_or_write(self.conn, lead, "en", self.settings, client=create_client(FakeCreate("Hello. 514-000-0000")))
+        self.assertEqual(en["approach"], d["approach"])                                 # one approach per ad
+        again = drafts.get_or_write(self.conn, lead, "fr", self.settings, fresh=True, client=create_client(FakeCreate("Rebonjour.")))
+        self.assertEqual(again["approach"], d["approach"])                              # a rewrite keeps it
+        # Reworked in the box: still that approach, marked edited.
+        web.api_decide(self.conn, lead["id"], {"action": "approve", "message": "Bonjour madame, tout autre texte.",
+                                               "shown": {"custom": True, "lang": "fr"}}, self.settings)
+        got = self.conn.execute("SELECT approach, template FROM leads WHERE id=?", (lead["id"],)).fetchone()
+        ev = self.conn.execute("SELECT approach, edited FROM events WHERE lead_id=?", (lead["id"],)).fetchone()
+        self.assertEqual((got["approach"], ev["approach"], ev["edited"]), (d["approach"], d["approach"], 1))
+        self.assertTrue(got["template"].startswith("draft:claude/"))
+        # "Use the template", then edited: the standard message, whatever drafts the ad has.
+        web.api_decide(self.conn, lead["id"], {"action": "approve", "message": "Bonjour madame, tout autre texte.",
+                                               "shown": {"custom": False, "lang": "fr"}}, self.settings)
+        got = self.conn.execute("SELECT approach, template FROM leads WHERE id=?", (lead["id"],)).fetchone()
+        self.assertEqual(got["approach"], "template")
+        self.assertTrue(got["template"].startswith("outreach_fr@"))
+        web.api_decide(self.conn, lead["id"], {"action": "sent"}, self.settings)        # Mark sent keeps the credit
+        self.assertEqual(self.row("template")["sent"], 1)
+        # Stefan asks for another approach: a different one, and the other language is written again.
+        res, _code = web.api_draft(self.conn, lead["id"], {"lang": "fr", "other": True}, {**self.settings, "drafts": {
+            **self.settings["drafts"], "provider": "lmstudio", "lmstudio": {"url": "http://127.0.0.1:9/v1", "timeout_seconds": 1}}})
+        self.assertIn("LM Studio", res["error"])                                        # a failed write changes nothing
+        self.assertEqual(set(drafts.saved(self.conn, lead["id"])), {"fr", "en"})
+        other = drafts.get_or_write(self.conn, lead, "fr", self.settings, other=True, client=create_client(FakeCreate("Bonjour!")))
+        self.assertNotEqual(other["approach"], d["approach"])
+        self.assertEqual(other["picked_by"], "stefan")
+        self.assertEqual(set(drafts.saved(self.conn, lead["id"])), {"fr"})
+
+    def test_answered_messages_become_examples_only_once_there_are_a_few(self):
+        a = self.ids[0]
+        for i in set(self.ids) - {a}:   # so the next ad is due this approach
+            self.sent(1, i, "no_reply")
+            self.conn.execute("INSERT INTO drafts (lead_id, lang, text, approach, created_at) VALUES (?,?,?,?,?)",
+                              (f"d:{i}", "fr", "x", i, db.now()))
+        self.sent(2, a, "replied", message="Bonjour, votre logement à Laval est libre ? Réponse A.")
+        create = FakeCreate("Bonjour. 514-000-0000")
+        d = drafts.get_or_write(self.conn, self.lead(), "fr", self.settings, client=create_client(create))
+        self.assertEqual(d["approach"], a)
+        self.assertNotIn("<answered>", create.calls[0]["messages"][0]["content"])       # two replies are an anecdote
+        self.sent(1, a, "listing", message="Bonjour, votre logement à Dorval avec stationnement. Réponse B.")
+        self.sent(1, a, "replied", message="Hello, the apartment near the metro with parking is available? Answer C.")
+        self.sent(1, a, "no_reply", message="Bonjour, sans suite.")
+        shown = approaches.answered(self.conn, a, "fr", self.settings)
+        self.assertEqual(len(shown), 3)
+        self.assertIn("Réponse B", shown[0])                                            # the signed one first, French before English
+        self.assertNotIn("Answer C", "".join(shown))
+        self.assertEqual(approaches.answered(self.conn, self.ids[1], "fr", self.settings), [])
+        user = drafts.ad_block(self.lead(), approaches.get(a), shown)
+        self.assertLess(user.index("<answered>"), user.index("<ad>"))
+
+    def test_desk_test_and_scorecard(self):
+        t = approaches.desk_test(self.conn, self.settings)
+        self.assertEqual((t["state"], t["sent"]), ("running", 0))
+        self.assertIn("No messages sent yet", approaches.verdict(t))
+        self.settings["learn"] = {**self.settings["learn"], "desk_test": {"messages": 10, "success_signed": 3, "stop_signed": 1}}
+        self.sent(9, "template", "no_reply", days_ago=40)
+        self.assertEqual(approaches.desk_test(self.conn, self.settings)["state"], "running")
+        self.sent(1, "template", "listing", days_ago=35)
+        self.assertEqual(approaches.desk_test(self.conn, self.settings)["state"], "stop")
+        self.sent(1, self.ids[0], "listing", days_ago=1)                                # past the first 10: outside the test
+        t = approaches.desk_test(self.conn, self.settings)
+        self.assertEqual((t["state"], t["signed"], t["sent"], t["sent_all"]), ("stop", 1, 10, 11))
+        self.conn.execute("UPDATE leads SET outcome='listing' WHERE id='kijiji:1'")     # one of the first 10 signs later
+        self.assertEqual(approaches.desk_test(self.conn, self.settings)["state"], "between")
+        self.conn.execute("UPDATE leads SET outcome='listing' WHERE id='kijiji:2'")
+        t = approaches.desk_test(self.conn, self.settings)
+        self.assertEqual(t["state"], "success")
+        self.assertIn("Goal reached", approaches.verdict(t))
+        page = web.stats_page(self.conn, self.settings)
+        for text in ("The desk test", "Which approach is working", "Standard message", "Their ad first", "Still testing evenly"):
+            self.assertIn(text, page)
+        self.settings["drafts"]["provider"] = ""
+        self.assertIn("Custom messages are off", web.stats_page(self.conn, self.settings))
+        out = Path(self.tmp.name) / "learnings"
+        learn.write(self.conn, self.settings, out)
+        f = json.loads((out / "findings.json").read_text(encoding="utf-8"))
+        self.assertEqual(f["desk_test"]["state"], "success")
+        self.assertEqual(next(r for r in f["approaches"]["rows"] if r["id"] == "template")["sent"], 10)
+        self.assertIn("## Approaches", (out / "messages.md").read_text(encoding="utf-8"))
+        self.assertIn("## The desk test", (out / "summary.md").read_text(encoding="utf-8"))
+
+    def test_review_screen_gets_names_and_phase(self):
+        lead = self.lead(bucket="review")
+        res = web.api_leads(self.conn, self.settings, "review")
+        self.assertEqual(res["learning"]["phase"], "learning")
+        self.assertEqual(res["learning"]["names"]["ad_detail"], "Their ad first")
+        self.assertEqual(res["learning"]["active"], len(self.ids))
+        self.assertEqual(lead["id"], res["leads"][0]["id"])
 
 
 class MyDetailsTests(unittest.TestCase):

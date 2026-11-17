@@ -15,13 +15,16 @@ python3 -m desk learn
 | `platforms/<board>.md` | One per board: approvals, replies, why ads were rejected, and every signal broken down for that board. |
 | `signals/*.md` | Approval and reply rates by area, phase, rent, owner vs property manager, ad age, ad language and board. |
 | `hooks.md` | Words in ad titles that go with approvals and with replies. |
-| `messages.md` | Reply and presentation rates per message template (and whether Stefan edited it). |
+| `messages.md` | How each way of opening a message is doing (the approaches in `config/approaches.json`, with the share of new messages each one writes), then reply and presentation rates per message template (and whether Stefan edited it). |
 | `findings.json` | The same numbers for scripts and agents. |
 
 How to read the numbers:
 
 - **Approval rate** is Stefan's call on the ad (Approve vs Reject or Later). **Reply rate** is among sent messages
-  with an outcome recorded on the Sent tab (Replied, Presentation booked, Listing signed count as replies).
+  with a known outcome: one recorded on the Sent tab, or no answer for `learn.no_reply_days` (14), which counts as no
+  reply. Replied, Presentation booked and Listing signed count as replies; Said no and No reply don't.
+- `summary.md` opens with **the desk test** (300 messages; 6 or more signed listings is a success, 2 or fewer is the
+  sign to stop) and which approach is ahead, with the same caution about small samples.
 - Each rate has a 95% range. A segment is marked **higher** or **lower** only when that range clears the overall
   rate; **tentative** means fewer than `learn.min_sample` decisions (30 by default). Treat tentative findings as
   hunches to test, never as rules.

@@ -17,7 +17,7 @@ Stefan's daily tool for the 2027 rental plan (the plan lives in the separate Zaa
 | TAL calculator | Each lease has a **TAL calculator** that follows the Tribunal administratif du logement's method for notices given since 1 January 2026 (Règlement sur les critères de fixation de loyer, décret 1455-2025): the base percentage (3.1 % for renewals starting 2 April 2026 to 1 April 2027), municipal and school taxes and insurance above the base, and 5 % of major work, each by the unit's share of the building. With only the rent it applies the base rate; add the building's figures for the full calculation. The result goes into the landlord message. Add each January's new rates to `config/tal_rates.json`; until then the next year's renewals are marked provisional. |
 | Lease photo scan | On **New lease**, take photos of the lease pages with a phone (or drop in scans or a PDF) and the form fills itself as Claude reads them. Fields from the photos are highlighted green; orange ones (confidence under 0.9, blurry or inferred) need a closer look; nothing saves until you click Save. Uses the same field rules as the lease import. **Setup, once:** `python3 -m pip install anthropic`, then put a Claude API key in `config/settings.json` as `"anthropic_api_key": "sk-ant-..."` (that file is git-ignored). **Privacy:** the pages, with the tenants' and landlord's personal details, are sent to the Claude API to be read; copies stay only on this computer in `data/scans/` (not committed). |
 | E.2 Leases | A printable lease prep sheet laid out by the sections of the mandatory TAL lease form, filled from the same form. |
-| Scorecard | Surfaced, sent, rejected, replied, presentations and signed listings per source per week. |
+| Scorecard | The desk test (300 messages, 6 or more signed listings is a success, 2 or fewer is the sign to stop), which way of opening a message landlords answer most, then surfaced, sent, rejected, replied, presentations and signed listings per source per week. See [What works](#what-works). |
 
 ## How Stefan runs it (Mac)
 
@@ -34,7 +34,7 @@ while Stefan works (a line under the tabs shows progress, and new ads join the R
 - **Reject** (`R`) shows the reasons; pick one with a click or `1`–`7`. "Broker" teaches the tool: that poster is flagged next time.
 - **Later** (`L`) parks an ad. **Undo** (`Z`) reverses the last action, and keeps going back.
 - `V` switches to a list where you can tick several ads and reject or park them together. `?` lists every shortcut.
-- On the **Sent** tab, record what happened: Replied, Presentation booked, Listing signed, No reply. Follow-up messages are there too.
+- On the **Sent** tab, record what happened: Replied, Said no, Presentation booked, Listing signed, No reply. Follow-up messages are there too. An ad with nothing marked after 14 days counts as no reply.
 
 From a terminal instead:
 
@@ -101,6 +101,38 @@ Each ad can get its own message, written in Stefan's style from his past outreac
    back. Stefan reads, edits and approves as always. The broker disclaimer is put back if the model drops it, and a
    message over the length limit gets one shorter try. Each message is saved with the ad, and the learnings count
    custom messages (by model and sample set) next to the templates.
+4. **Approaches.** Each custom message is written with one way of opening (the box names it). **Try another
+   approach** writes it a different way; **Rewrite** keeps the approach. See [What works](#what-works).
+
+## What works
+
+The desk tests a few ways of opening a first message against each other and leans toward the ones landlords answer.
+They are in `config/approaches.json`: *Their ad first*, *Takes the work off their hands*, *What the team does every
+week*, *Short, one question*. The standard template is the baseline they are read against.
+
+- **What counts.** After a message is sent, in order: no reply or said no, replied (interested), presentation booked,
+  listing signed. A reply is the early sign and a signed listing is the goal. Signed listings are too rare to steer by
+  (about 6 in 300 messages if the test succeeds), so an interested reply carries most of the credit and the later steps
+  add to it (`learn.outcome_worth`). A sent message with nothing marked after `learn.no_reply_days` (14) counts as no
+  reply, so the numbers don't depend on every quiet ad being marked.
+- **How drafting leans.** For each new ad the desk picks the approach. With no results it is an even rotation. As
+  results come in, each approach's chance of being the best is worked out from its own numbers, pulled toward the
+  average while it has few, and blended with an even split: 25 % by results while any approach has fewer than
+  `learn.min_sample` (30) messages with a known outcome, 75 % after. Every active approach always keeps a share, so the
+  testing never stops. Expect it to stay close to even for most of the first 300 messages: with four approaches and
+  replies from roughly one landlord in ten, only a large difference shows up that early.
+- **What the model sees.** The approach's instruction, and once an approach has 3 answered messages, up to 3 of them
+  as Stefan sent them (`drafts.proven_min`, `drafts.proven_max`). With `claude` as the provider these go to the Claude
+  API along with the ad and the samples.
+- **Where to look.** **Scorecard** shows the desk test, then each approach: sent, replied, said no, presentations,
+  signed, a plain reading (Too early to tell, Ahead, Behind, About the same) and its share of new messages. Ahead or
+  Behind appears only once an approach has 30 results and the gap is bigger than chance. The same numbers are written
+  to `learnings/messages.md` and `findings.json`.
+- **Changing the approaches.** Edit `config/approaches.json`: set `active` to false to stop one (its numbers stay), or
+  add one with a new id. Don't rename or reuse an id, and keep every approach inside the outreach playbook (the
+  landlord's problem first, one ask, no fee claims, nothing the ad or Stefan's past messages don't back).
+
+Nothing here sends anything. It only changes how a draft is worded; Stefan reads, edits and sends every message.
 
 ## Sending
 

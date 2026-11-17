@@ -5,6 +5,10 @@ Stefan's past outreach messages (the samples) live in a folder set in settings (
 The model reads a handful of them, then the ad, and writes one message for that ad. Stefan reads it,
 edits it if he wants, and approves it like any other message: nothing is sent from here.
 
+Each ad's message is written with one approach (approaches.py): a named way of opening, chosen so that the
+approaches landlords answer most get used a little more, while every one keeps being tested. The approach
+stays with the ad: a rewrite or the other language uses the same one, unless Stefan asks for another.
+
 Drafts are kept per ad and language (table "drafts"), so reopening an ad doesn't call the model again.
 The broker disclaimer is added back if the model leaves it out, exactly as for the templates.
 """
@@ -17,7 +21,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import db, outreach
+from . import approaches, db, outreach
 from .config import ROOT
 
 SAMPLE_TYPES = {".txt", ".md", ".eml"}
@@ -106,8 +110,9 @@ The broker: {agent.get("name", "")}, {title}, {agent.get("agency", "")}.
 Phone: {agent.get("phone", "")}. Email: {agent.get("email", "")}. Rentals page: {agent.get("rental_page_url", "")}.
 
 Here are messages the broker wrote before. Match their voice, length, structure and level of formality.
-Reuse their way of opening, of presenting the service and of asking for a reply. Do not copy names,
-addresses or details that belong to other ads. Some samples may be in French and some in English: take the
+Reuse their way of opening, of presenting the service and of asking for a reply. When an approach comes with
+the ad, it decides how the message opens and what comes first: follow it, in the broker's voice. Do not copy
+names, addresses or details that belong to other ads. Some samples may be in French and some in English: take the
 voice from all of them, and write in the language asked for below.
 
 {shown or "(no samples yet: write a short, warm, professional message)"}
@@ -123,12 +128,21 @@ Rules:
 - Output only the message."""
 
 
-def ad_block(lead):
+def ad_block(lead, approach=None, answered=()):
+    """The ad, with the approach to write it in and, once there are some, messages of that approach that
+    landlords answered. These sit with the ad, not in the system prompt, so the samples stay cached."""
     facts = {"title": lead.get("title"), "rent": lead.get("price"), "area": lead.get("area"),
              "address": lead.get("address"), "bedrooms": lead.get("bedrooms"), "unit_type": lead.get("unit_type"),
              "board": lead.get("source"), "text": (lead.get("snippet") or "")[:3000]}
     lines = "\n".join(f"{k}: {v}" for k, v in facts.items() if v)
-    return f"Write the message for this ad.\n<ad>\n{lines}\n</ad>"
+    how = ""
+    if approach:
+        how = f'<approach name="{approach["name"]}">\n{approach["instruction"]}\n</approach>\n'
+        if answered:
+            shown = "\n".join(f'<message n="{i + 1}">\n{m[:MAX_SAMPLE_CHARS]}\n</message>' for i, m in enumerate(answered))
+            how += ("<answered>\nMessages the broker sent with this approach that landlords answered. Lean toward what they "
+                    f"do well; never reuse details that belong to their ads.\n{shown}\n</answered>\n")
+    return f"Write the message for this ad.\n{how}<ad>\n{lines}\n</ad>"
 
 
 def finish(text, lang):
@@ -233,14 +247,15 @@ def runner(settings, client=None):
     return lambda s, u: _claude(s, u, cfg.get("claude") or {}, settings, client)
 
 
-def write(lead, lang, settings, client=None):
-    """One message for this ad, in this language. Returns {"text", "template", "model"}."""
+def write(lead, lang, settings, client=None, approach=None, answered=()):
+    """One message for this ad, in this language, opened the way `approach` says (an entry of approaches.load()).
+    Returns {"text", "template", "model", "approach"}."""
     cfg = settings.get("drafts") or {}
     provider = cfg.get("provider") or ""
     if provider not in ("lmstudio", "claude"):
         raise DraftError("Custom messages are off. Set drafts.provider to lmstudio or claude in config/settings.json.")
     samples = pick_samples(load_samples(settings), lang, settings)
-    system, user = system_prompt(samples, lang, settings), ad_block(lead)
+    system, user = system_prompt(samples, lang, settings), ad_block(lead, approach, answered)
     run = runner(settings, client)
     text, model = run(system, user)
     text = finish(text, lang)
@@ -250,23 +265,37 @@ def write(lead, lang, settings, client=None):
         shorter = finish(shorter, lang)
         if len(shorter) < len(text):
             text = shorter
-    return {"text": text, "model": model, "template": f"draft:{provider}/{model}@{corpus_id(samples)}"}
+    return {"text": text, "model": model, "template": f"draft:{provider}/{model}@{corpus_id(samples)}",
+            "approach": approach["id"] if approach else None}
 
 
 # ---------------------------------------------------------------- storage
 def saved(conn, lead_id):
     """{"fr": {...}, "en": {...}} for the drafts this ad already has."""
-    return {r["lang"]: {"text": r["text"], "template": r["template"], "model": r["model"]}
+    return {r["lang"]: {"text": r["text"], "template": r["template"], "model": r["model"], "approach": r["approach"],
+                        "picked_by": r["picked_by"]}
             for r in conn.execute("SELECT * FROM drafts WHERE lead_id=?", (lead_id,))}
 
 
-def get_or_write(conn, lead, lang, settings, fresh=False, client=None):
-    if not fresh:
-        have = saved(conn, lead["id"]).get(lang)
-        if have:
-            return have
-    d = write(lead, lang, settings, client)
-    conn.execute("INSERT OR REPLACE INTO drafts (lead_id, lang, text, template, model, created_at) VALUES (?,?,?,?,?,?)",
-                 (lead["id"], lang, d["text"], d["template"], d["model"], db.now()))
+def get_or_write(conn, lead, lang, settings, fresh=False, client=None, other=False):
+    """The saved message for this ad and language, or a new one. fresh: write it again, same approach.
+    other: Stefan wants a different approach for this ad, so the desk picks among the rest."""
+    have = saved(conn, lead["id"])
+    if not fresh and not other and lang in have:
+        return have[lang]
+    current = next((d for d in have.values() if d["approach"]), None)
+    if current and not other:
+        aid, by = current["approach"], current["picked_by"]
+    else:
+        aid = approaches.pick(conn, lead["id"], settings, exclude=[current["approach"]] if current else ())
+        by = "stefan" if other else "desk"
+        aid = aid or (current["approach"] if current else None)  # nothing else to switch to
+    d = write(lead, lang, settings, client, approaches.get(aid) if aid else None,
+              approaches.answered(conn, aid, lang, settings))
+    if other:  # the other language was written the old way
+        conn.execute("DELETE FROM drafts WHERE lead_id=? AND lang!=?", (lead["id"], lang))
+    conn.execute("INSERT OR REPLACE INTO drafts (lead_id, lang, text, template, model, created_at, approach, picked_by) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
+                 (lead["id"], lang, d["text"], d["template"], d["model"], db.now(), d["approach"], by if d["approach"] else None))
     conn.commit()
-    return d
+    return {**d, "picked_by": by if d["approach"] else None}

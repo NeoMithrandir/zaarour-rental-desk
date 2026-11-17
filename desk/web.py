@@ -13,7 +13,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, profile, scan, send, tal
+from . import approaches, capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, profile, scan, send, tal
 from .config import UI_DIR, load_areas, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -245,7 +245,64 @@ check the section letters against the edition you use). Blank lines still need a
     return page("Lease sheet", body, "leases")
 
 
-def stats_page(conn):
+READING = {"unused": "Not used yet", "started": "Just started", "early": "Too early to tell", "alone": "Nothing to compare with",
+           "ahead": "Ahead", "behind": "Behind", "same": "About the same"}
+
+
+def working_html(conn, settings):
+    """The top of the Scorecard: where the desk test stands, and which way of opening a message is working."""
+    test, st = approaches.desk_test(conn, settings), approaches.stats(conn, settings)
+    on = drafts.status(settings)["on"]
+    plural = lambda n, one, many: f"{n} {one if n == 1 else many}"
+    tiles = "".join(f'<div class="stat"><b>{n}</b><span>{esc(label)}</span></div>' for n, label in [
+        (test["sent"], f"Sent, of {test['messages']}"), (test["replied"], "Replied"),
+        (test["presentation"], "Presentations booked"), (test["signed"], f"Listings signed, goal {test['success_signed']}")])
+    done = min(100, round(100 * test["sent"] / test["messages"])) if test["messages"] else 0
+    test_html = f"""<section class="card working"><p class="eyebrow">The desk test</p>
+<div class="kpis">{tiles}</div>
+<div class="meter" role="img" aria-label="{test['sent']} of {test['messages']} messages sent"><i style="width:{done}%"></i></div>
+<p class="verdict {test['state']}">{esc(approaches.verdict(test))}</p>
+<p class="muted">The test is {test['messages']} first messages. {test['success_signed']} or more signed listings is a success;
+{test['stop_signed']} or fewer is the sign to stop and rethink. A reply is the early sign, a signed listing is the goal.
+Mark what happened to each message on the <a href="/#sent">Sent tab</a>.</p></section>"""
+
+    if not on:
+        note = ("Custom messages are off, so every message uses your standard wording and there is nothing to compare yet. "
+                "The approaches below start being tested when custom messages are switched on.")
+    elif st["phase"] == "learning":
+        note = (f"Still testing evenly. The desk waits for about {st['min_sample']} messages with a known result per approach "
+                f"before it leans on the numbers (the one with the fewest has {st['least']}). Until then it leans only "
+                "lightly, so every approach writes close to the same share of new messages.")
+    elif st["phase"] == "leaning":
+        note = ("The desk now leans toward what works: the approaches landlords answer most write more of the new messages. "
+                "Every approach keeps a share, so the testing goes on.")
+    else:
+        note = "No approach is switched on (config/approaches.json), so custom messages are written without one."
+    trs = ""
+    for r in st["rows"]:
+        if r["share"] is not None and on:
+            share = approaches.pct(r["share"])
+        else:
+            share = ("When you choose it" if r["id"] == approaches.TEMPLATE else "Off" if r["active"]
+                     else "Stopped" if r["id"] not in approaches.BUILT_IN else "—")
+        replied = f"{r['replied']} of {r['n']} · {approaches.pct(r['rate'])}" if r["n"] else "—"
+        waiting = f'<small class="muted">{r["waiting"]} too recent to count</small>' if r["waiting"] else ""
+        trs += (f"<tr class='rd-{r['reading']}'><td><b>{esc(r['name'])}</b><small class='muted'>{esc(r['what'])}</small></td>"
+                f"<td class='num'>{r['sent']}{waiting}</td><td class='num'>{replied}</td><td class='num'>{r['declined'] if r['n'] else '—'}</td>"
+                f"<td class='num'>{r['presentation'] if r['n'] else '—'}</td><td class='num'>{r['listing'] if r['n'] else '—'}</td>"
+                f"<td><span class='reading {r['reading']}'>{READING[r['reading']]}</span></td><td class='num'>{share}</td></tr>")
+    return test_html + f"""<h2 id="approaches">Which approach is working</h2>
+<p class="lede"><b>{esc(st['headline'])}</b></p>
+<p class="banner ask"><span>{esc(note)}</span></p>
+<div class="tablewrap"><table class="approaches"><tr><th>Way of opening the message</th><th>Sent</th><th>Replied</th><th>Said no</th><th>Presentations</th>
+<th>Signed</th><th>Reading</th><th>Share of new messages</th></tr>{trs}</table></div>
+<p class="muted">Replied counts interested replies, including those that went on to a presentation or a listing; a landlord
+who answers "no thanks" is under Said no. A message with nothing marked after {plural(st['no_reply_days'], 'day', 'days')}
+counts as no reply. Ahead or Behind appears only once an approach has {st['min_sample']} results and its gap from the others
+is bigger than chance alone would give.</p>"""
+
+
+def stats_page(conn, settings=None):
     weeks = []
     today = date.today()
     monday = today - timedelta(days=today.weekday())
@@ -259,19 +316,21 @@ def stats_page(conn):
                              ("Sent", "sent_at>=? AND sent_at<?"),
                              ("Rejected", "status='rejected' AND decided_at>=? AND decided_at<?"),
                              ("Replied", "outcome IN ('replied','presentation','listing') AND outcome_at>=? AND outcome_at<?"),
+                             ("Said no", "outcome='declined' AND outcome_at>=? AND outcome_at<?"),
                              ("Listing presentation", "outcome IN ('presentation','listing') AND outcome_at>=? AND outcome_at<?"),
                              ("Signed listing", "outcome='listing' AND outcome_at>=? AND outcome_at<?")]:
             for r in q(where, s, e):
                 rows.setdefault(r["source"], {})[label] = r["n"]
         weeks.append((start, rows))
-    cols = ["Surfaced", "Sent", "Rejected", "Replied", "Listing presentation", "Signed listing"]
+    cols = ["Surfaced", "Sent", "Rejected", "Replied", "Said no", "Listing presentation", "Signed listing"]
     html_rows = ""
     for start, rows in weeks:
         for src, vals in sorted(rows.items()) or [("—", {})]:
             html_rows += f"<tr><td>Week of {start}</td><td>{esc(src)}</td>" + "".join(f"<td>{vals.get(c, 0)}</td>" for c in cols) + "</tr>"
-    body = f"""<h1>Scorecard</h1><p class="muted">Ads surfaced, messages sent, replies and listings, by source and week
+    body = f"""<h1>Scorecard</h1>{working_html(conn, settings or load_settings())}
+<h2>Week by week</h2><p class="muted">Ads surfaced, messages sent, replies and listings, by source and week
 (plan section 7). Replies and listings come from the buttons on each sent lead.</p>
-<table><tr><th>Week</th><th>Source</th>{''.join(f'<th>{c}</th>' for c in cols)}</tr>{html_rows}</table>"""
+<div class="tablewrap"><table><tr><th>Week</th><th>Source</th>{''.join(f'<th>{c}</th>' for c in cols)}</tr>{html_rows}</table></div>"""
     return page("Scorecard", body, "stats")
 
 
@@ -377,7 +436,7 @@ def api_leads(conn, settings, tab, phase=""):
     agent = settings.get("agent", {})
     return {"leads": out, "counts": lead_counts(conn), "today": today_counts(conn),
             "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS,
-            "drafting": drafts.status(settings),
+            "drafting": drafts.status(settings), "learning": approaches.brief(conn, settings),
             "agent": {"n": agent.get("name", ""), "e": agent.get("email", ""), "p": agent.get("phone", "")}}
 
 
@@ -430,25 +489,37 @@ def _group(conn, r, action, t):
                      args + (f"Same poster as {r['id']}",))
 
 
-def template_used(lead, settings, message, saved_drafts=None):
-    """Which template an outgoing message came from, and whether Stefan edited it.
+def template_used(lead, settings, message, saved_drafts=None, shown=None):
+    """Which template an outgoing message came from, whether Stefan edited it, and the approach it counts for.
 
     The id carries a short hash of the template text, so a reworded template counts as a new variant
-    in the learnings. A message written for the ad counts as its draft's id (model and samples)."""
+    in the learnings. A message written for the ad counts as its draft's id (model and samples) and its
+    draft's approach; the standard message counts for the "template" approach.
+    shown: what the review screen had in the box when Stefan started ({"custom": bool, "lang": "fr"}), which
+    settles it when he edited the text; without it, the text itself is compared."""
     saved_drafts = saved_drafts or {}
+    text = (message or "").strip()
+    draft = lambda d, edited: (d["template"], edited, d.get("approach") or approaches.UNSET)
+    standard = lambda lang, edited: (outreach.template_id("outreach", lang), edited, approaches.TEMPLATE)
     for d in saved_drafts.values():
-        if (message or "").strip() == d["text"].strip():
-            return d["template"], False
+        if text == d["text"].strip():
+            return draft(d, False)
     for lang in ([lead.get("lang")] if lead.get("lang") else []) + ["fr", "en"]:
-        if (message or "").strip() == outreach.render(lead, settings, lang).strip():
-            return outreach.template_id("outreach", lang), False
+        if text == outreach.render(lead, settings, lang).strip():
+            return standard(lang, False)
+    if shown and shown.get("lang") in ("fr", "en") and "custom" in shown:
+        if shown["custom"] and shown["lang"] in saved_drafts:
+            return draft(saved_drafts[shown["lang"]], bool(message))
+        if not shown["custom"]:
+            return standard(shown["lang"], bool(message))
     lang = outreach.detect_lang(message or "") if message else (lead.get("lang") or "fr")
     if lang in saved_drafts:  # Stefan reworked the custom message
-        return saved_drafts[lang]["template"], bool(message)
-    return outreach.template_id("outreach", lang), bool(message)
+        return draft(saved_drafts[lang], bool(message))
+    return standard(lang, bool(message))
 
 
-LOGGED = {"approve", "sent", "reject", "later", "undo", "unsend", "replied", "presentation", "listing", "no_reply", "set_outcome"}
+OUTCOMES = ("replied", "declined", "presentation", "listing", "no_reply")  # what happened after a message was sent
+LOGGED = {"approve", "sent", "reject", "later", "undo", "unsend", "set_outcome", *OUTCOMES}
 
 
 def api_decide(conn, lead_id, body, settings=None):
@@ -458,19 +529,19 @@ def api_decide(conn, lead_id, body, settings=None):
         return {"error": "not found"}, 404
     t = db.now()
     _group(conn, r, action, t)
-    template = edited = None
+    template = edited = approach = None
     if action in ("approve", "sent") and (body.get("message") or action == "approve"):
-        template, edited = template_used(db.lead_dict(r), settings or load_settings(), body.get("message", ""),
-                                         drafts.saved(conn, lead_id))
+        template, edited, approach = template_used(db.lead_dict(r), settings or load_settings(), body.get("message", ""),
+                                                   drafts.saved(conn, lead_id), body.get("shown"))
     if action in LOGGED:  # the learning log: every decision and outcome, with the ad's signals
         db.log_event(conn, db.lead_dict(r), action, body.get("reason") or body.get("outcome"),
-                     template or r["template"], edited)
+                     template or r["template"], edited, approach or r["approach"])
     if action == "approve":
-        conn.execute("UPDATE leads SET status='approved', decided_at=?, message=?, template=? WHERE id=?",
-                     (t, body.get("message", ""), template, lead_id))
+        conn.execute("UPDATE leads SET status='approved', decided_at=?, message=?, template=?, approach=? WHERE id=?",
+                     (t, body.get("message", ""), template, approach, lead_id))
     elif action == "sent":
-        conn.execute("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message), template=COALESCE(?, template) WHERE id=?",
-                     (t, body.get("message"), template, lead_id))
+        conn.execute("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message), template=COALESCE(?, template), "
+                     "approach=COALESCE(?, approach) WHERE id=?", (t, body.get("message"), template, approach, lead_id))
     elif action == "reject":
         reason = body.get("reason", "Other")
         conn.execute("UPDATE leads SET status='rejected', decided_at=?, reject_reason=? WHERE id=?", (t, reason, lead_id))
@@ -484,10 +555,12 @@ def api_decide(conn, lead_id, body, settings=None):
         conn.execute("UPDATE leads SET status='new', decided_at=NULL, reject_reason=NULL, sent_at=NULL WHERE id=?", (lead_id,))
     elif action == "unsend":  # undo of Mark sent: back to the To send queue
         conn.execute("UPDATE leads SET status='approved', sent_at=NULL WHERE id=?", (lead_id,))
-    elif action in ("replied", "presentation", "listing", "no_reply"):
+    elif action in OUTCOMES:
         conn.execute("UPDATE leads SET outcome=?, outcome_at=? WHERE id=?", (action, t, lead_id))
     elif action == "set_outcome":  # undo of an outcome button: put the previous one back (or none)
         prev = body.get("outcome") or None
+        if prev and prev not in OUTCOMES:
+            return {"error": "bad outcome"}, 400
         conn.execute("UPDATE leads SET outcome=?, outcome_at=? WHERE id=?", (prev, t if prev else None, lead_id))
     elif action == "rebucket":  # "Move to review" from Hidden, and its undo
         b = body.get("bucket")
@@ -509,7 +582,8 @@ def api_draft(conn, lead_id, body, settings):
         return {"error": "not found"}, 404
     lang = "en" if body.get("lang") == "en" else "fr"
     try:
-        d = drafts.get_or_write(conn, db.lead_dict(r), lang, settings, fresh=bool(body.get("fresh")))
+        d = drafts.get_or_write(conn, db.lead_dict(r), lang, settings, fresh=bool(body.get("fresh")),
+                                other=bool(body.get("other")))
     except drafts.DraftError as e:
         return {"error": str(e)}, 200
     return {"lang": lang, **d}, 200

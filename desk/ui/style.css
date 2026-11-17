@@ -259,6 +259,26 @@ th { font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: u
 .print th { width: 45%; font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .blank { color: var(--line-2); }
 
+/* scorecard: the desk test and which approach is working */
+.working { padding: 22px 24px; margin: 14px 0 28px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 24px; margin-bottom: 16px; }
+.stat b { display: block; font: 600 34px/1.1 var(--body); }
+.stat span { font-size: 13px; color: var(--muted); }
+.meter { height: 6px; border-radius: 99px; background: var(--line-2); overflow: hidden; margin-bottom: 14px; }
+.meter i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
+.verdict { font-weight: 500; margin: 0 0 8px; }
+.working p.muted { margin: 0; max-width: 760px; }
+.tablewrap { overflow-x: auto; margin-bottom: 12px; }
+.tablewrap table { min-width: 780px; }
+table.approaches td small { display: block; font-size: 12.5px; margin-top: 2px; white-space: normal; }
+table.approaches b { font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.reading { display: inline-block; font-size: 12.5px; font-weight: 500; padding: 3px 11px; border-radius: 99px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.reading.same, .reading.alone { color: var(--ink-2); }
+.reading.ahead { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+.reading.behind { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
+main.stats h2 { margin-top: 28px; }
+
 /* narrow screens */
 @media (max-width: 900px) {
   .triage { grid-template-columns: minmax(0, 1fr); }
@@ -297,6 +317,9 @@ th { font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: u
   .progress .bar { flex-basis: 80px; }
   .toast { bottom: 88px; }
   .savebar { margin: 0 -16px; padding: 12px 16px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat b { font-size: 28px; }
+  .working { padding: 18px 16px; }
 }
 @media print { header, .noprint, .savebar, .actionbar { display: none; } body { background: #fff; color: #000; } table { box-shadow: none; } }
 .tabs button.on:hover { background: var(--ink); color: var(--bg); }

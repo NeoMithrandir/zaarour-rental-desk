@@ -1,0 +1,33 @@
+{
+  "_comment": "The ways of opening a first message that the desk tests against each other (desk/approaches.py). Each custom message is written with one of them, and the Scorecard shows how each is doing. name and what are what Stefan sees; instruction is what the writing model is told. To stop testing one, set active to false: its numbers stay on the Scorecard, and no new message uses it. To test a new one, add an entry with a new id (lowercase letters, digits, _). Never reuse or rename an id: the results are filed under it. Every approach must respect the outreach playbook: the hook is the landlord's problem, one ask, no fee claims, no promises the ad or Stefan's past messages don't back.",
+  "approaches": [
+    {
+      "id": "ad_detail",
+      "name": "Their ad first",
+      "what": "Opens with something specific from the landlord's own ad.",
+      "active": true,
+      "instruction": "Open with one or two concrete things from the landlord's ad (the unit, the street or area, something they wrote), so the first line could only be about their place. Then say in one sentence who the broker is, and what the team does to get it rented."
+    },
+    {
+      "id": "time_saver",
+      "name": "Takes the work off their hands",
+      "what": "Opens with the calls, showings and tenant checks the landlord no longer has to do.",
+      "active": true,
+      "instruction": "Open with the work of renting a place out alone (answering calls, showings, checking tenants) and offer to take it off the landlord's hands. Say early that the landlord keeps the final say on the tenant. Name the area or the kind of unit from the ad once, so it is clearly about their place."
+    },
+    {
+      "id": "proof",
+      "name": "What the team does every week",
+      "what": "Opens with the team renting out places like theirs, in their area.",
+      "active": true,
+      "instruction": "Open with what the broker's team already does for landlords with a place like this one, in the area the ad names. Use only what the broker's past messages say the team does; with no past messages, say only that the team rents out places for landlords in that area. No numbers, results or timelines that are not in those messages."
+    },
+    {
+      "id": "short_question",
+      "name": "Short, one question",
+      "what": "Three or four short sentences that end on one easy question.",
+      "active": true,
+      "instruction": "Keep it to three or four short sentences before the closing lines: one thing from the ad, who the broker is, one line on what the team does, then a single easy question the landlord can answer in a word (whether the broker may send the team's one-page overview). Nothing else: no list of services."
+    }
+  ]
+}

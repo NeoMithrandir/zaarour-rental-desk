@@ -22,12 +22,14 @@
 
   "message_char_limit": 1000,
 
-  "_drafts_comment": "Custom messages: one message per ad, written in Stefan's style from his past messages. samples_path is a folder of .txt/.md/.eml files (one message per file, or several split by a line of ---), relative to rentals-desk/ or absolute. provider: \"\" (templates only), \"lmstudio\" (local, LM Studio's server on this Mac, nothing leaves it) or \"claude\" (the ad and the samples go to the Claude API; uses anthropic_api_key). auto writes the message when an ad is opened. Stefan still reads and approves every message.",
+  "_drafts_comment": "Custom messages: one message per ad, written in Stefan's style from his past messages. samples_path is a folder of .txt/.md/.eml files (one message per file, or several split by a line of ---), relative to rentals-desk/ or absolute. provider: \"\" (templates only), \"lmstudio\" (local, LM Studio's server on this Mac, nothing leaves it) or \"claude\" (the ad and the samples go to the Claude API; uses anthropic_api_key). auto writes the message when an ad is opened. Each message is written with one way of opening from config/approaches.json, and the desk leans toward the ones landlords answer most (see learn below). Once an approach has proven_min answered messages, up to proven_max of them (as Stefan sent them) are shown to the model as examples of that approach. Stefan still reads and approves every message.",
   "drafts": {
     "provider": "",
     "samples_path": "data/outreach-samples",
     "auto": true,
     "max_samples": 8,
+    "proven_min": 3,
+    "proven_max": 3,
     "lmstudio": {"url": "http://localhost:1234/v1", "model": "", "temperature": 0.7, "max_tokens": 1200, "timeout_seconds": 120},
     "claude": {"model": "claude-opus-5-5", "effort": "low"}
   },
@@ -76,7 +78,16 @@
     "imap": {"host": "", "port": 993, "user": "", "folder": "Desk alerts", "keychain_service": "zaarour-desk-alerts"}
   },
 
-  "learn": {"min_sample": 30, "min_show": 5},
+  "_learn_comment": "How the desk reads results. min_sample: how many decisions (or, per approach, messages with a known outcome) before a finding stops being tentative and drafting leans on it; min_show: fewer than this is not reported. no_reply_days: a sent message with nothing marked after this many days counts as no reply. lean_light / lean_full: how much of the choice of approach follows the results (the rest is an even split) before and after every active approach has min_sample outcomes; keep lean_full under 1 so every approach stays tested. outcome_worth: the credit each outcome gives an approach (no reply and said no give 0). desk_test: the plan's test, messages sent and the signed listings that mean success or stop.",
+  "learn": {
+    "min_sample": 30,
+    "min_show": 5,
+    "no_reply_days": 14,
+    "lean_light": 0.25,
+    "lean_full": 0.75,
+    "outcome_worth": {"replied": 0.5, "presentation": 0.8, "listing": 1.0},
+    "desk_test": {"messages": 300, "success_signed": 6, "stop_signed": 2}
+  },
 
   "craigslist": {"url": "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"},
   "logisquebec": {"regions": ["ile-de-montreal", "laval", "monteregie", "laurentides", "lanaudiere"], "pages_per_region": 3, "delay_seconds": 4},

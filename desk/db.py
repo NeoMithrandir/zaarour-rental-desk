@@ -75,6 +75,10 @@ def connect(path=None):
         conn.execute("ALTER TABLE leads ADD COLUMN detailed INTEGER")
     if "template" not in cols:  # which message template an approved lead got (for the learnings)
         conn.execute("ALTER TABLE leads ADD COLUMN template TEXT")
+    # Which way of opening the message used (approaches.py): on the draft, the approved lead and each event.
+    for table, col in (("leads", "approach"), ("drafts", "approach"), ("drafts", "picked_by"), ("events", "approach")):
+        if col not in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
     return conn
 
 
@@ -121,7 +125,7 @@ def unmark_poster(conn, source, poster_id, label):
         conn.execute("DELETE FROM known_posters WHERE source=? AND poster_id=? AND label=?", (source, poster_id, label))
 
 
-def log_event(conn, lead, action, reason=None, template=None, edited=None):
+def log_event(conn, lead, action, reason=None, template=None, edited=None, approach=None):
     """Append one decision or outcome to the learning log, with the listing's signals as they were then."""
     d = dict(lead)
     signals = {k: d.get(k) for k in ("source", "area", "phase", "price", "bedrooms", "unit_type", "poster_type",
@@ -130,6 +134,6 @@ def log_event(conn, lead, action, reason=None, template=None, edited=None):
     if isinstance(flags, str):
         flags = json.loads(flags or "[]")
     signals["flags"] = sorted({f["code"] for f in flags or []})
-    conn.execute("INSERT INTO events (lead_id, at, action, reason, template, edited, signals) VALUES (?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO events (lead_id, at, action, reason, template, edited, signals, approach) VALUES (?,?,?,?,?,?,?,?)",
                  (d.get("id"), now(), action, reason, template, None if edited is None else int(bool(edited)),
-                  json.dumps(signals, ensure_ascii=False)))
+                  json.dumps(signals, ensure_ascii=False), approach))

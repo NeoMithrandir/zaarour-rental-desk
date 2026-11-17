@@ -1,8 +1,9 @@
 """The learning loop: what Stefan approves, what landlords answer, written up as plain markdown.
 
 Inputs are the desk's own records: every lead Stefan decided (Approve / Reject with a reason / Later),
-what happened after a message was sent (replied, presentation booked, listing signed, no reply), the
-template each message came from and whether Stefan edited it, plus the listing's signals (board, area
+what happened after a message was sent (replied, said no, presentation booked, listing signed, no reply), the
+template and the approach each message came from (approaches.py) and whether Stefan edited it, plus the
+listing's signals (board, area
 and phase, rent, owner or property manager, ad age, language, title words). The events table keeps
 the full history; the rates below use each lead's current state, so an undone mis-click doesn't count.
 
@@ -17,6 +18,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import approaches
+from .approaches import wilson
 from .config import ROOT
 from .text import fold
 
@@ -73,12 +76,14 @@ def title_words(title):
     return set(words)
 
 
-def rows(conn):
-    """One dict per decided lead: its signals and what happened."""
+def rows(conn, no_reply_days=14, now=None):
+    """One dict per decided lead: its signals and what happened. A sent message with nothing recorded after
+    no_reply_days counts as no reply, so a quiet ad Stefan never marked still weighs on the reply rates."""
     out = []
     for r in conn.execute("SELECT * FROM leads WHERE status IN ('approved','sent','rejected','later')"):
         d = dict(r)
         flags = {f["code"] for f in json.loads(d.get("flags") or "[]")}
+        known = d["status"] == "sent" and approaches.state(d.get("outcome"), d.get("sent_at"), no_reply_days, now) != "waiting"
         out.append({
             "id": d["id"], "source": d["source"] or "other", "area": d.get("area") or "area unknown",
             "phase": f"phase {d['phase']}" if d.get("phase") else "phase unknown",
@@ -90,7 +95,8 @@ def rows(conn):
             "later": d["status"] == "later", "reason": d.get("reject_reason") or "",
             "sent": d["status"] == "sent", "replied": d.get("outcome") in REPLIED,
             "presentation": d.get("outcome") in ("presentation", "listing"), "signed": d.get("outcome") == "listing",
-            "outcome_known": bool(d.get("outcome")), "template": d.get("template") or "",
+            "outcome_known": known, "template": d.get("template") or "",
+            "approach": approaches.filed_under(d.get("approach"), d.get("template")),
             "decided_at": d.get("decided_at") or d.get("sent_at") or "",
         })
     return out
@@ -105,15 +111,6 @@ def edited_by_lead(conn):
 
 
 # ---------------------------------------------------------------- statistics
-def wilson(k, n, z=1.96):
-    if not n:
-        return (0.0, 0.0)
-    p = k / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return (max(0.0, centre - half), min(1.0, centre + half))
-
-
 def pct(x):
     return f"{round(100 * x)}%"
 
@@ -174,7 +171,7 @@ def section(items, key, title, cfg):
     out.append(f"### Approval rate by {title.lower()}\n\nOverall: {pct(base)} of {len(items)} decisions.\n\n" + table(st, "Approved"))
     sent = [i for i in items if i["sent"] and i["outcome_known"]]
     base, st = breakdown(sent, key, lambda r: r["replied"], mn, ms)
-    out.append(f"### Reply rate by {title.lower()}\n\nOverall: {pct(base)} of {len(sent)} sent messages with a recorded outcome.\n\n"
+    out.append(f"### Reply rate by {title.lower()}\n\nOverall: {pct(base)} of {len(sent)} sent messages with a known outcome.\n\n"
                + table(st, "Replied"))
     return "\n".join(out), {"approval": [s.as_dict() for s in breakdown(items, key, lambda r: r["approved"], mn, ms)[1]],
                             "reply": [s.as_dict() for s in breakdown(sent, key, lambda r: r["replied"], mn, ms)[1]]}
@@ -228,19 +225,18 @@ STANDING = """## Standing rules (always apply, whatever the numbers say)
 
 
 def write(conn, settings=None, out_dir=None, now=None):
-    cfg = {"min_sample": 30, "min_show": 5}
-    cfg.update((settings or {}).get("learn", {}))
+    cfg = approaches.cfg(settings)
     out = Path(out_dir or OUT_DIR)
     (out / "platforms").mkdir(parents=True, exist_ok=True)
     (out / "signals").mkdir(parents=True, exist_ok=True)
     at = (now or datetime.now()).isoformat(timespec="minutes")
-    items = rows(conn)
+    items = rows(conn, cfg["no_reply_days"], now)
     edited = edited_by_lead(conn)
     for i in items:
         i["edited"] = edited.get(i["id"])
     sent = [i for i in items if i["sent"] and i["outcome_known"]]
     findings = {"written_at": at, "decisions": len(items), "sent_with_outcome": len(sent), "min_sample": cfg["min_sample"],
-                "signals": {}, "platforms": {}, "hooks": {}, "templates": {}}
+                "signals": {}, "platforms": {}, "hooks": {}, "templates": {}, "approaches": {}, "desk_test": {}}
     written = []
 
     # Signals
@@ -291,15 +287,20 @@ def write(conn, settings=None, out_dir=None, now=None):
                                   f"appears in {cfg['min_show']} decided ads.\n\n" + hooks_text, encoding="utf-8")
     tmpl_text, tmpl = templates_section(items, cfg)
     findings["templates"] = tmpl
-    (out / "messages.md").write_text(HEADER.format(at=at) + "# Messages\n\nWhich template (and whether Stefan edited it) was "
+    appr_text, test_line, findings["approaches"], findings["desk_test"] = approaches_section(conn, settings, now)
+    (out / "messages.md").write_text(HEADER.format(at=at) + "# Messages\n\n" + appr_text + "\n## Templates\n\nWhich template "
+                                     "(and whether Stefan edited it) was "
                                      "sent, and how often the landlord replied. The id after @ changes whenever the template "
                                      "text changes, so each wording is its own row.\n\n" + tmpl_text, encoding="utf-8")
     written += ["hooks.md", "messages.md"]
 
     rules = guidance(items, sent, cfg, edited)
     summary = [HEADER.format(at=at), "# What the desk has learned so far\n",
-               f"From {len(items)} decisions and {len(sent)} sent messages with a recorded outcome. Findings from fewer than "
+               f"From {len(items)} decisions and {len(sent)} sent messages with a known outcome. Findings from fewer than "
                f"{cfg['min_sample']} decisions are marked _tentative_: read them as hunches to test, not rules.\n",
+               "## The desk test\n", test_line, "",
+               "## Which way of opening a message works\n", findings["approaches"]["headline"]
+               + " Detail in [messages.md](messages.md).", "",
                "## Guidance\n", "\n".join(rules) if rules else "_Nothing stands out yet. Keep deciding and recording outcomes._", "",
                STANDING, "## Boards\n", "| Board | Decisions | Approved | Replied |", "|---|---|---|---|", *plat_lines, "",
                "## More detail\n", *[f"- [{w}]({w})" for w in written], "- [findings.json](findings.json) (the same numbers, for scripts and agents)"]
@@ -319,6 +320,37 @@ def hooks_section(items, cfg):
     text = (f"### Approved by Stefan (overall {pct(base)})\n\n" + table(top, "Approved") +
             f"\n### Landlord replied (overall {pct(rbase)} of {len(sent)})\n\n" + table(rst, "Replied"))
     return text, {"approval": [s.as_dict() for s in top], "reply": [s.as_dict() for s in rst]}
+
+
+READING = {"unused": "not used yet", "started": "just started", "early": "tentative", "alone": "nothing to compare with",
+           "ahead": "higher", "behind": "lower", "same": "no clear difference"}
+
+
+def approaches_section(conn, settings=None, now=None):
+    """How each way of opening a message is doing (approaches.py), the desk test in one line, and both as data."""
+    st, test = approaches.stats(conn, settings, now=now), approaches.desk_test(conn, settings)
+    lean = {"learning": f"Drafting leans on these only lightly: not every approach has {st['min_sample']} known outcomes yet "
+                        f"(fewest: {st['least']}).",
+            "leaning": "Drafting leans toward the approaches with the best results; every active one keeps a share.",
+            "none": "No approach is active, so custom messages are written without one."}[st["phase"]]
+    lines = ["| Approach | Sent | Replied | Said no | Presentations | Signed | Range (95%) | Reading | Share of new messages |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for r in st["rows"]:
+        rate = f"{pct(r['rate'])} ({r['replied']} of {r['n']})" if r["n"] else "—"
+        rng = f"{pct(r['range'][0])}–{pct(r['range'][1])}" if r["n"] else "—"
+        lines.append(f"| {r['name']} (`{r['id']}`) | {r['sent']} | {rate} | {r['declined']} | {r['presentation']} | {r['listing']} | "
+                     f"{rng} | {READING[r['reading']]} | {pct(r['share']) if r['share'] is not None else '—'} |")
+    text = ("## Approaches\n\nEach custom message is written with one way of opening (config/approaches.json); the standard "
+            "template is the baseline. Replied counts interested replies, including those that went on to a presentation or "
+            f"a listing. A message with nothing recorded after {st['no_reply_days']} days counts as no reply.\n\n"
+            f"{st['headline']} {lean}\n\n" + "\n".join(lines) + "\n")
+    data = {"headline": st["headline"], "phase": st["phase"], "rows": [
+        {k: r[k] for k in ("id", "name", "active", "sent", "waiting", "n", "replied", "declined", "no_reply", "presentation",
+                           "listing", "reading")} | {"rate": None if r["rate"] is None else round(r["rate"], 3),
+                                                     "interval": [round(x, 3) for x in r["range"]],
+                                                     "share": None if r["share"] is None else round(r["share"], 3)}
+        for r in st["rows"]]}
+    return text, approaches.verdict(test), data, test
 
 
 def templates_section(items, cfg):

@@ -12,7 +12,7 @@
   };
   const SOURCES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", facebook: "Facebook Marketplace",
     group: "Facebook group", lespac: "LesPAC", rentalsca: "Rentals.ca", padmapper: "PadMapper / Zumper", appartogo: "Appartogo", louer: "Louer.ca", duproprio: "DuProprio", other: "Other" };
-  const OUTCOMES = [["replied", "Replied"], ["presentation", "Presentation booked"], ["listing", "Listing signed"], ["no_reply", "No reply"]];
+  const OUTCOMES = [["replied", "Replied"], ["declined", "Said no"], ["presentation", "Presentation booked"], ["listing", "Listing signed"], ["no_reply", "No reply"]];
   const TRIAGE = ["review", "broker", "later"];           // tabs that can be shown one at a time
   const SELECTABLE = ["review", "broker", "later", "rejected", "hidden"];
 
@@ -123,9 +123,21 @@
     if (drafting[key]) return `<p class="draftline busy">Writing a message for this ad in Stefan's style…</p>`;
     if (draftErr[key]) return `<p class="draftline bad">${esc(draftErr[key])} <button class="linkish" data-draft="fresh">Try again</button></p>`;
     const d = l.drafts && l.drafts[m.lang];
-    if (m.custom) return `<p class="draftline good">Written for this ad from ${dr.samples ? dr.samples + " sample message" + (dr.samples > 1 ? "s" : "") : "no samples yet"} (${esc(d.model)}).
-      <button class="linkish" data-draft="fresh" title="Write another (W)">Rewrite</button> · <button class="linkish" data-draft="template">Use the template</button></p>`;
+    if (m.custom) return `<p class="draftline good">Written for this ad from ${dr.samples ? dr.samples + " sample message" + (dr.samples > 1 ? "s" : "") : "no samples yet"} (${esc(d.model)}).${approachNote(d)}
+      <button class="linkish" data-draft="fresh" title="Write another, same approach (W)">Rewrite</button>${d.approach && (data.learning || {}).active > 1 ? ` · <button class="linkish" data-draft="other" title="Write it with a different way of opening">Try another approach</button>` : ""} · <button class="linkish" data-draft="template">Use the template</button></p>`;
     return `<p class="draftline muted">Standard template. ${d ? `<button class="linkish" data-draft="custom">Use the custom message</button> · ` : ""}<button class="linkish" data-draft="${d ? "fresh" : "write"}" title="(W)">Write one for this ad</button>${dr.problem ? ` <span title="${esc(dr.problem)}">ⓘ</span>` : ""}</p>`;
+  }
+
+  // Which way of opening this message uses, and how much the desk is leaning on results yet (Scorecard has the numbers).
+  function approachNote(d) {
+    const lr = data.learning || {};
+    if (!d.approach || !lr.names || !lr.names[d.approach]) return "";
+    const why = d.picked_by === "stefan" ? "you asked for a different one"
+      : lr.phase === "leaning" ? "chosen from what landlords answer most"
+      : "still testing the approaches evenly";
+    const tip = lr.phase === "leaning" ? "The desk favours the approaches that get the most answers, and keeps testing the others."
+      : `Too early to favour one: the desk waits for about ${lr.min_sample} messages with a known result per approach.`;
+    return ` Approach: <b>${esc(lr.names[d.approach])}</b> (<a href="/stats#approaches" target="_blank" rel="noopener" title="${esc(tip)}">${why}</a>).`;
   }
 
   function sendHint(l) {
@@ -148,7 +160,7 @@
   }
 
   // ------------------------------------------------------------ custom messages (drafts)
-  async function requestDraft(l, lang, fresh, quiet) {
+  async function requestDraft(l, lang, fresh, quiet, other) {
     const key = l.id + ":" + lang;
     if (drafting[key]) return;
     drafting[key] = true; delete draftErr[key];
@@ -156,13 +168,13 @@
     let res;
     try {
       res = await (await fetch("/api/lead/" + encodeURIComponent(l.id) + "/draft", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang, fresh: !!fresh }) })).json();
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang, fresh: !!fresh, other: !!other }) })).json();
     } catch (e) { res = { error: "The desk didn't answer. Is it still running?" }; }
     delete drafting[key];
     if (res.error) draftErr[key] = res.error;
     else {
-      l.drafts = l.drafts || {};
-      l.drafts[lang] = { text: res.text, template: res.template, model: res.model };
+      l.drafts = other ? {} : l.drafts || {};  // another approach: the other language is rewritten that way too
+      l.drafts[lang] = { text: res.text, template: res.template, model: res.model, approach: res.approach, picked_by: res.picked_by };
       const e = edits[l.id];
       // A message Stefan has started editing is never replaced under his hands.
       if (e && !fresh && (e[lang] != null || e.template)) { /* keep his edit or his choice of the template */ } else if (e) { delete e[lang]; delete e.template; }
@@ -285,7 +297,8 @@
   function rowActions(l) {
     if (tab === "approved") return `<button data-r="reopen" title="Copies the message and opens the ad, ready for Fill from desk">Open to send</button><button data-r="sent" class="primary">Mark sent ✓</button><button data-r="back" class="ghost">Back to review</button>`;
     if (tab === "sent") {
-      return `<span class="muted small">Sent ${esc((l.sent_at || "").slice(0, 10))}</span>
+      const quiet = !l.outcome && daysUp(l.sent_at) >= ((data.learning || {}).no_reply_days || 14);
+      return `<span class="muted small"${quiet ? ` title="Nothing marked after ${data.learning.no_reply_days} days: counted as no reply until you mark what happened."` : ""}>Sent ${esc((l.sent_at || "").slice(0, 10))}${quiet ? " · no answer" : ""}</span>
         <div class="seg small outcome">${OUTCOMES.map(([k, v]) => `<button data-r="o:${k}" class="${l.outcome === k ? "on" : ""}">${v}</button>`).join("")}</div>
         <button data-r="followup">Follow-up…</button>`;
     }
@@ -446,7 +459,7 @@
     if (what === "custom") { delete e.template; delete e[lang]; return refreshComposer(l); }
     if (e[lang] != null && !confirm("Replace your edits with a new message for this ad?")) return;
     delete e.template; delete e[lang];
-    requestDraft(l, lang, what === "fresh");
+    requestDraft(l, lang, what === "fresh" || what === "other", false, what === "other");
   }
 
   // ------------------------------------------------------------ actions, undo
@@ -462,20 +475,20 @@
   }
 
   async function approve(l, force) {
-    const ta = $(".composer textarea", stage);
-    const text = ta ? ta.value : msgFor(l).text;
+    const ta = $(".composer textarea", stage), m = msgFor(l);
+    const text = ta ? ta.value : m.text;
     if (text.length > data.limit && !confirm(`The message is ${text.length} characters, over the board's ${data.limit} limit. Approve anyway?`)) return;
     if (!force && !(await copy(text))) {
       if (ta) { ta.focus(); ta.select(); }
       return toast("The message couldn't be copied automatically. It's selected: press ⌘C first.", false, ["I copied it, open the ad", () => approve(l, true)]);
     }
     openAd(l, text);
-    await act(l, { action: "approve", message: text }, "Approved. Ad opened: open its message box, click Fill from desk (or ⌘V), send it, then come back.");
+    await act(l, { action: "approve", message: text, shown: { custom: m.custom, lang: m.lang } }, "Approved. Ad opened: open its message box, click Fill from desk (or ⌘V), send it, then come back.");
     pendingSend = { lead: l, at: Date.now() };
   }
 
   const verb = (b) => ({ approve: "approved", reject: `rejected${b.reason ? " · " + b.reason : ""}`, later: "moved to Later", undo: "moved back to review",
-    sent: "marked sent", unsend: "moved back to To send", rebucket: b.bucket === "review" ? "moved to review" : "hidden", set_outcome: "outcome cleared" }[b.action]
+    sent: "marked sent", unsend: "moved back to To send", rebucket: b.bucket === "review" ? "moved to review" : "hidden", set_outcome: "outcome cleared", declined: "marked as said no" }[b.action]
     || "marked " + (OUTCOMES.find((o) => o[0] === b.action) || [, b.action])[1].toLowerCase());
 
   function inverse(l, b) {
