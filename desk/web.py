@@ -13,7 +13,7 @@ import urllib.parse
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, scan, send, tal
+from . import capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, profile, scan, send, tal
 from .config import UI_DIR, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
@@ -28,7 +28,7 @@ def page(title, body, active=""):
     nav = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
         for key, href, label in [("leads", "/", "Leads"), ("lease", "/leases/new", "New lease"),
-                                 ("leases", "/leases", "Renewals"), ("stats", "/stats", "Scorecard")])
+                                 ("leases", "/leases", "Renewals"), ("stats", "/stats", "Scorecard"), ("me", "/me", "My details")])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Zaarour Rentals</title>
 <link rel="stylesheet" href="/ui/style.css"></head><body>
@@ -264,6 +264,62 @@ def stats_page(conn):
 (plan section 7). Replies and listings come from the buttons on each sent lead.</p>
 <table><tr><th>Week</th><th>Source</th>{''.join(f'<th>{c}</th>' for c in cols)}</tr>{html_rows}</table>"""
     return page("Scorecard", body, "stats")
+
+
+SAVED = {"details": "Your details are saved. New messages use them now.",
+         "samples": "Your sample messages are saved."}
+
+
+UNSAVED_GUARD = """<script>/* Each box saves on its own: warn before leaving with another box's changes unsaved. */
+let dirty = new Set(), sending = null;
+document.querySelectorAll("form").forEach(f => {
+  f.addEventListener("input", () => dirty.add(f));
+  f.addEventListener("submit", () => { sending = f; });
+});
+addEventListener("beforeunload", e => { if ([...dirty].some(f => f !== sending)) e.preventDefault(); });</script>"""
+
+
+def my_details_page(settings, saved="", errors=None, typed=None):
+    """Stefan's contact details, message wording and style samples, each saved by its own button.
+    errors/typed: a template that didn't save, with what Stefan typed, so nothing he wrote is lost."""
+    errors, typed = errors or {}, typed or {}
+    agent = settings.get("agent", {})
+    details = "".join(field_html(k, label, "url" if k == "rental_page_url" else "text", False, agent.get(k, ""))
+                      for k, label in profile.DETAILS)
+    details += field_html("office_email", "Office email (where new rentals are sent)", "text", False,
+                          settings.get("office_email", ""))
+    sample_lead = {"address": "", "area": "Laval"}
+    templates = ""
+    for name, (label, allowed) in profile.TEMPLATES.items():
+        text = typed.get(name, profile.read_template(name))
+        problem = "".join(f"<li>{esc(p)}</li>" for p in errors.get(name, []))
+        kind, lang = name.rsplit("_", 1)
+        preview = ""
+        if kind in ("outreach", "followup") and not problem:
+            preview = (f'<details><summary>How it reads (an ad in Laval)</summary>'
+                       f'<pre>{esc(outreach.render(sample_lead, settings, lang, kind))}</pre></details>')
+        templates += f"""<form method="post" action="/me/template/{name}" class="form card" id="t-{name}">
+<h3>{esc(label)}</h3>{f'<div class="banner bad">Not saved:<ul>{problem}</ul></div>' if problem else ''}
+{'<p class="banner ask"><span>Saved. New messages use this wording now.</span></p>' if saved == name else ''}
+<label class="field wide"><textarea name="text" rows="12">{esc(text)}</textarea></label>
+<p class="muted">Fill-ins the desk replaces: {esc(', '.join('{' + a + '}' for a in sorted(allowed)))}</p>
+{preview}<div class="actions-row"><button class="primary" type="submit">Save</button></div></form>"""
+    banner = f'<p class="banner ask"><span>{esc(SAVED[saved])}</span></p>' if saved in SAVED else ""
+    body = f"""<h1>My details</h1>
+<p class="lede">Your name, phone and the wording of your messages. Everything you save here is used by the next
+message the desk shows you. The line about brokers is always added to first messages, even if you remove it.</p>
+{banner}<form method="post" action="/me/details" class="form card"><h2>Contact details</h2>
+<div class="grid">{details}</div><div class="actions-row"><button class="primary" type="submit">Save details</button></div></form>
+<h2>Message wording</h2>
+<p class="muted">Words in curly brackets, like {{agent_phone}}, are filled in by the desk. Keep them as they are.</p>
+{templates}
+<form method="post" action="/me/samples" class="form card" id="samples"><h2>Your past messages (style samples)</h2>
+<p class="muted">Paste a few messages you've sent landlords before. Put a line of three dashes (---) between two
+messages. When custom drafts are switched on, the desk writes each message in your style from these.</p>
+<label class="field wide"><textarea name="text" rows="14">{esc(profile.read_samples(settings))}</textarea></label>
+<div class="actions-row"><button class="primary" type="submit">Save samples</button></div></form>
+""" + UNSAVED_GUARD
+    return page("My details", body, "me")
 
 
 # ---------------------------------------------------------------- API
@@ -508,6 +564,8 @@ class Handler(BaseHTTPRequestHandler):
                                   {"Content-Disposition": "attachment; filename=leases.csv"})
             if path == "/stats":
                 return self._send(200, stats_page(conn))
+            if path == "/me":
+                return self._send(200, my_details_page(settings, (qs.get("saved") or [""])[0]))
             parts = path.strip("/").split("/")
             if len(parts) >= 2 and parts[0] == "leases" and parts[1].isdigit():
                 r = leases.get(conn, int(parts[1]))
@@ -600,6 +658,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"started": started, **SCANNER.status})
             if path == "/api/recheck":
                 return self._json(dict(feed.recheck_all(conn)))
+            if path == "/me/details":
+                profile.save_details(body)
+                return self._send(303, "", headers={"Location": "/me?saved=details"})
+            if path.startswith("/me/template/") and path[len("/me/template/"):] in profile.TEMPLATES:
+                name = path[len("/me/template/"):]
+                errors = profile.save_template(name, body.get("text", ""))
+                if errors:
+                    return self._send(400, my_details_page(load_settings(), errors={name: errors}, typed={name: body.get("text", "")}))
+                return self._send(303, "", headers={"Location": f"/me?saved={name}#t-{name}"})
+            if path == "/me/samples":
+                profile.save_samples(load_settings(), body.get("text", ""))
+                return self._send(303, "", headers={"Location": "/me?saved=samples#samples"})
             if path in ("/leases/new", "/rentals/new"):
                 errors = leases.validate(body)
                 if errors:

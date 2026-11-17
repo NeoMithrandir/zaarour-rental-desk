@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import capture, db, drafts, feed, lease_import, lease_scan, leases, outreach, send, tal, web  # noqa: E402
+from desk import capture, db, drafts, feed, lease_import, lease_scan, leases, outreach, profile, send, tal, web  # noqa: E402
 from desk.checks import Checker, bucket  # noqa: E402
 from desk.config import load_areas, load_settings  # noqa: E402
 from desk.sources import appartogo, craigslist, kijiji, lespac, logisquebec  # noqa: E402
@@ -628,6 +628,52 @@ class DraftTests(unittest.TestCase):
         js = send.fill_bookmarklet()
         self.assertTrue(js.startswith("javascript:"))
         self.assertNotIn("click()", js)                                    # it fills, it never presses Send
+
+
+class MyDetailsTests(unittest.TestCase):
+    """The "My details" page writes Stefan's text where the desk reads it, and the next message uses it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "config").mkdir()
+        (root / "templates").mkdir()
+        for f in (Path(__file__).resolve().parent.parent / "templates").glob("*.txt"):
+            (root / "templates" / f.name).write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+        (root / "config" / "settings.json").write_text(json.dumps({"permissions": {"kijiji": {"scan_enabled": True}}}))
+        self.root = root
+        self.saved = (profile.CONFIG_DIR, profile.TEMPLATE_DIR, outreach.TEMPLATE_DIR)
+        profile.CONFIG_DIR = root / "config"
+        profile.TEMPLATE_DIR = outreach.TEMPLATE_DIR = root / "templates"
+
+    def tearDown(self):
+        profile.CONFIG_DIR, profile.TEMPLATE_DIR, outreach.TEMPLATE_DIR = self.saved
+        self.tmp.cleanup()
+
+    def test_details_saved_without_touching_permissions(self):
+        profile.save_details({"name": "Stefan Ivanov", "phone": "514-555-0101", "office_email": "tanya@zaarour.ca"})
+        raw = json.loads((self.root / "config" / "settings.json").read_text())
+        self.assertEqual(raw["agent"]["phone"], "514-555-0101")
+        self.assertEqual(raw["office_email"], "tanya@zaarour.ca")
+        self.assertEqual(raw["permissions"], {"kijiji": {"scan_enabled": True}})
+
+    def test_saved_wording_is_used_by_the_next_message(self):
+        self.assertEqual(profile.save_template("outreach_en", "Hi from {agent_name} about {city}."), [])
+        msg = outreach.render({"area": "Laval"}, {"agent": {"name": "Stefan"}}, "en")
+        self.assertTrue(msg.startswith("Hi from Stefan about Laval."))
+        self.assertIn(outreach.DISCLAIMER["en"], msg)            # the broker line comes back even if removed
+
+    def test_bad_fill_in_is_refused_and_file_kept(self):
+        before = profile.read_template("outreach_fr")
+        self.assertTrue(profile.save_template("outreach_fr", "Bonjour {nom}"))
+        self.assertTrue(profile.save_template("outreach_fr", "Bonjour {agent_name"))
+        self.assertEqual(profile.read_template("outreach_fr"), before)
+
+    def test_samples_go_where_drafts_read_them(self):
+        settings = {"drafts": {"samples_path": str(self.root / "samples")}}
+        profile.save_samples(settings, "Bonjour, j'ai vu votre annonce et je peux vous aider a louer rapidement.\n---\n"
+                                       "Hi, I saw your ad and our team can rent your place quickly for you.")
+        self.assertEqual(len(drafts.load_samples(settings)), 2)
 
 
 if __name__ == "__main__":
