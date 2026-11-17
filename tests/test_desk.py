@@ -189,6 +189,11 @@ class BoardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             lespac.parse("<html>no data</html>")
 
+    def test_install_page_has_both_buttons(self):
+        h = capture.install_page(web.page)
+        self.assertNotIn("{fill}", h)
+        self.assertEqual(h.count('href="javascript:'), 2)  # Send to desk and Fill from desk
+
     def test_money(self):
         self.assertEqual([money("1 195$"), money("$1,200"), money("1 200,50 $"), money("")], [1195, 1200, 1200, None])
 

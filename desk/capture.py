@@ -98,7 +98,7 @@ open other pages, sign in, or read your messages or contacts.</p>
 <p class="lede">For sending. When you approve a message, the desk copies it and opens the ad. Open the board's message box
 (Send message, Contact, Reply), click <b>Fill from desk</b> on the bar, read the message, then click the board's own Send.</p>
 <ol class="steps">
-<li><strong>Drag this button onto the bar:</strong> <a class="btn primary" href="{fill}" onclick="event.preventDefault(); alert('Drag this button onto your bookmarks bar, then click it in a board\'s message box.');">Fill from desk</a></li>
+<li><strong>Drag this button onto the bar:</strong> <a class="btn primary" href="{{fill}}" onclick="event.preventDefault(); alert('Drag this button onto your bookmarks bar, then click it in a board\'s message box.');">Fill from desk</a></li>
 <li><strong>On the ad</strong>, signed in to the board as yourself, open its message box and click <b>Fill from desk</b>. It fills
 the message, and your name, email and phone where the form asks for them and they're empty.</li>
 <li><strong>Read it and click the board's Send.</strong> If the board asks for a CAPTCHA, answer it. Back on the desk, say whether it went.</li>
