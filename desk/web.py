@@ -31,8 +31,9 @@ def page(title, body, active=""):
                                  ("leases", "/leases", "Renewals"), ("stats", "/stats", "Scorecard"), ("me", "/me", "My details")])
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Zaarour Rentals</title>
+<link rel="icon" type="image/png" href="/ui/zaarour-favicon.png"><link rel="apple-touch-icon" href="/ui/zaarour-favicon.png">
 <link rel="stylesheet" href="/ui/style.css"></head><body>
-<header><a class="brand" href="/"><span class="logo">Z</span><span>Rentals desk</span></a><nav>{nav}</nav></header>
+<header><a class="brand" href="/"><img class="logo" src="/ui/zaarour-logo.png" width="158" height="44" alt="Zaarour &amp; Associates"><span>Rentals desk</span></a><nav>{nav}</nav></header>
 <main class="{active}">{body}</main></body></html>"""
 
 
