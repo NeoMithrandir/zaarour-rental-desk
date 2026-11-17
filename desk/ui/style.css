@@ -52,6 +52,12 @@ button.big { padding: 13px 22px; font-size: 15px; border-radius: 12px; }
 .seg button { border: 0; background: transparent; border-radius: 99px; padding: 6px 14px; color: var(--muted); font-weight: 600; font-size: 13px; }
 .seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 .seg.small button { padding: 4px 10px; font-size: 12px; }
+.seg button[data-tip] { position: relative; }
+.seg button[data-tip]::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 30;
+  width: max-content; max-width: min(300px, 80vw); padding: 8px 12px; border-radius: var(--r-sm); background: var(--ink); color: var(--panel);
+  font-size: 12.5px; font-weight: 500; line-height: 1.45; text-align: left; white-space: normal; box-shadow: var(--shadow);
+  opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none; }
+.seg button[data-tip]:hover::after, .seg button[data-tip]:focus-visible::after { opacity: 1; visibility: visible; transition-delay: .15s; }
 
 /* desk bar */
 .deskbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-bottom: 20px; }

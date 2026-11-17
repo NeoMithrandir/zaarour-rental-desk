@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import capture, db, drafts, feed, learn, lease_import, lease_scan, leases, outreach, profile, scan, send, tal
-from .config import UI_DIR, load_settings
+from .config import UI_DIR, load_areas, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
 REJECT_REASONS = ["Broker", "Already listed", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"]
@@ -37,8 +37,16 @@ def page(title, body, active=""):
 
 
 # ---------------------------------------------------------------- pages
+def phase_tip(n):
+    """'Covers Saint-Laurent, Lachine, …': the areas in config/areas.json for that phase."""
+    return "Covers " + ", ".join(name for name, a in load_areas().items() if a.get("phase") == n) + "."
+
+
 def leads_page():
-    return page("Leads", open(UI_DIR / "leads.html", encoding="utf-8").read(), "leads")
+    body = open(UI_DIR / "leads.html", encoding="utf-8").read()
+    for n in (1, 2):
+        body = body.replace(f"{{phase{n}_areas}}", esc(phase_tip(n)))
+    return page("Leads", body, "leads")
 
 
 WIDE = {"address", "landlord_address", "tenant_current_address", "appliances", "notes_for_office",
