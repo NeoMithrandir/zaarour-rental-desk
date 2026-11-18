@@ -415,6 +415,7 @@ class PhoneTests(unittest.TestCase):
         self.settings["kijiji"] = {"max_pages_per_search": 1,
                                    "searches": [{"name": "Island", "slug": "ville-de-montreal", "location_id": 1700281}]}
         # No reveal on the board reads below: the tests that click call phones.reveal with a fake browser.
+        self.settings["expire_after_days"] = 0  # the fixture ads are dated 14 Oct
         self.settings["contacts"] = {"reveal": {}, "max_reveals_per_run": 5, "min_interval_seconds": 90,
                                      "blocked_days": 30}
         url = kijiji.search_url(self.settings["kijiji"]["searches"][0])
@@ -689,6 +690,20 @@ class ApiBoardTests(unittest.TestCase):
         self.assertIn("ZaarourRentalsDesk", headers["User-Agent"])
         row = self.conn.execute("SELECT * FROM leads WHERE id='rentalsca:42'").fetchone()
         self.assertEqual((row["price"], row["image"], row["source"]), (1650, "https://img/1.jpg", "rentalsca"))
+
+
+class ExpiryTests(unittest.TestCase):
+    def test_old_undecided_ads_are_set_aside_not_deleted(self):
+        tmp = tempfile.TemporaryDirectory()
+        conn = db.connect(Path(tmp.name) / "t.sqlite3")
+        old = (datetime.now() - timedelta(days=40)).isoformat()
+        for i, (posted, status) in enumerate([(old, "new"), ("", "new"), (old, "later"), (datetime.now().isoformat(), "new")]):
+            conn.execute("INSERT INTO leads (id, status, posted_at, first_seen) VALUES (?,?,?,?)",
+                         (str(i), status, posted, db.now()))
+        self.assertEqual(feed.expire_old(conn, 30), 1)
+        self.assertEqual([r[0] for r in conn.execute("SELECT status FROM leads ORDER BY id")], ["expired", "new", "later", "new"])
+        conn.close()
+        tmp.cleanup()
 
 
 if __name__ == "__main__":

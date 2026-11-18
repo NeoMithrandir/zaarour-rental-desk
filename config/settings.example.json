@@ -34,6 +34,8 @@
     "claude": {"model": "claude-opus-5-5", "effort": "low"}
   },
   "min_rent": 900,
+  "_expire_comment": "Undecided ads posted (or first seen) more than expire_after_days ago are set aside after each read (status expired, nothing deleted; Later and decided ads stay). 0 keeps them all.",
+  "expire_after_days": 30,
 
   "kijiji": {
     "_comment": "Whole locations, newest first, read until caught up with what the desk has seen (max_pages_per_search caps it). No sort/address/ll/radius parameters: Kijiji's robots.txt asks robots not to use them, and the area check sorts ads into areas anyway.",

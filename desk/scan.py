@@ -167,6 +167,10 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None, reveal=
         conn.commit()
     if hasattr(fetcher, "save"):
         fetcher.save()
+    from .feed import expire_old
+    expired = expire_old(conn, settings.get("expire_after_days", 30))
+    if expired:
+        log(f"Set aside {expired} undecided ads posted more than {settings.get('expire_after_days', 30)} days ago")
     total["boards_read"] = len(boards)
     total.boards = boards
     if reveal:

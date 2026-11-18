@@ -1,5 +1,6 @@
 """The daily lead feed (plan items 1.1 to 1.3): collect, check, store."""
 import hashlib
+from datetime import datetime, timedelta
 from collections import Counter
 
 from . import alerts, capture, db
@@ -49,6 +50,18 @@ def run_daily(log=print, fetcher=None, force=False):
     log(f"Done: {counts['new']} new ads ({counts['review']} to review, {counts['broker']} likely broker, "
         f"{counts['hidden']} hidden as tenant ads or out of area); {counts['already_seen']} already seen.")
     return counts
+
+
+def expire_old(conn, days):
+    """Set aside undecided ads posted (or, without a date, first seen) more than `days` ago: most are rented or
+    taken down by then. Status 'expired', so nothing is deleted; ads Stefan put in Later or decided on stay."""
+    if not days:
+        return 0
+    cutoff = (datetime.now() - timedelta(days=float(days))).date().isoformat()
+    cur = conn.execute("UPDATE leads SET status='expired', decided_at=? WHERE status='new' "
+                       "AND substr(COALESCE(NULLIF(posted_at, ''), first_seen), 1, 10) < ?", (db.now(), cutoff))
+    conn.commit()
+    return cur.rowcount
 
 
 def recheck_all(conn):
