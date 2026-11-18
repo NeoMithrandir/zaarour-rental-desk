@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS reveal_log (
     board TEXT, at TEXT, pages INTEGER, numbers INTEGER, stop_until TEXT, note TEXT, lead_id TEXT
 );
 CREATE INDEX IF NOT EXISTS reveal_log_board ON reveal_log(board, at);
+CREATE TABLE IF NOT EXISTS phone_searches (
+    number TEXT PRIMARY KEY, searched_at TEXT, verdict TEXT, label TEXT, url TEXT, title TEXT
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id TEXT, at TEXT, action TEXT, reason TEXT, template TEXT, edited INTEGER, signals TEXT

@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from desk import alerts, capture, db, feed, learn, scan  # noqa: E402
+from desk import alerts, capture, db, feed, learn, phone_search, scan  # noqa: E402
 from desk.checks import Checker  # noqa: E402
 from desk.config import CONFIG_DIR, load_areas, load_settings  # noqa: E402
 from desk.sources import appartogo, craigslist, details, http, kijiji, lespac, phones  # noqa: E402
@@ -589,6 +589,64 @@ class PhoneTests(unittest.TestCase):
         phones.save(self.conn, "kijiji:2", ["514-555-0303"], "revealed")
         self.assertFalse(phones.save(self.conn, "kijiji:2", ["438-555-0000"], "ad text"))
         self.assertEqual(self.phone("kijiji:2"), ("514-555-0303", "revealed"))
+
+class PhoneSearchTests(unittest.TestCase):
+    """A captured number found online with a broker adds a broker flag."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        self.settings["phone_search"] = {"provider": "brave", "brave_api_key": "k", "max_per_run": 5,
+                                         "min_interval_seconds": 3, "recheck_days": 60}
+        lead = {"id": "kijiji:1", "source": "kijiji", "source_id": "1", "url": "u", "title": "4 1/2 Lachine",
+                "snippet": "", "address": "Lachine, QC H8S 1A1", "poster_type": "owner"}
+        feed.process(self.conn, [lead, dict(lead, id="kijiji:2", source_id="2")], feed.checker_for(self.conn, self.settings))
+        self.conn.execute("UPDATE leads SET phone='514-555-0101' WHERE id='kijiji:1'")
+        self.conn.execute("UPDATE leads SET phone='438-555-0199' WHERE id='kijiji:2'")
+        self.asked, self.slept = [], []
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def get(self, url, headers):
+        self.asked.append((url, headers))
+        if "514" in url:
+            return {"web": {"results": [{"url": "https://www.remax-quebec.com/fr/courtiers/jean", "title": "Jean, courtier",
+                                         "description": "Jean Tremblay 514-555-0101"}]}}
+        return {"web": {"results": [{"url": "https://www.kijiji.ca/v-x/1", "title": "4 1/2 Lachine",
+                                     "description": "Owner, call 438-555-0199"}]}}
+
+    def bucket(self, lead_id):
+        return self.conn.execute("SELECT bucket FROM leads WHERE id=?", (lead_id,)).fetchone()[0]
+
+    def test_off_without_a_key(self):
+        self.settings["phone_search"]["brave_api_key"] = ""
+        self.assertEqual(phone_search.run(self.conn, self.settings, lambda *_: None, self.get, self.slept.append), 0)
+        self.assertEqual(self.asked, [])
+
+    def test_broker_number_flags_the_lead_and_each_number_is_searched_once(self):
+        n = phone_search.run(self.conn, self.settings, lambda *_: None, self.get, self.slept.append)
+        self.assertEqual(n, 1)
+        self.assertEqual((self.bucket("kijiji:1"), self.bucket("kijiji:2")), ("broker", "review"))
+        flags = json.loads(self.conn.execute("SELECT flags FROM leads WHERE id='kijiji:1'").fetchone()[0])
+        self.assertIn("found online with a broker", flags[-1]["text"] if flags[-1]["code"] == "broker" else
+                      next(f["text"] for f in flags if f["code"] == "broker"))
+        self.assertEqual(self.slept, [3.0])
+        self.assertEqual(self.asked[0][1]["X-Subscription-Token"], "k")
+        self.asked.clear()
+        phone_search.run(self.conn, self.settings, lambda *_: None, self.get, self.slept.append)
+        self.assertEqual(self.asked, [])
+
+    def test_owner_ad_mentioning_the_number_is_not_a_broker(self):
+        self.assertIsNone(phone_search.classify("438-555-0199", [{"url": "https://www.kijiji.ca/v/1",
+                                                                  "title": "Logement", "snippet": "438-555-0199"}]))
+        self.assertTrue(phone_search.classify("438-555-0199", [{"url": "https://site.ca/x", "title": "Équipe Dubé",
+                                                                "snippet": "Courtier immobilier, 438 555 0199"}]))
+        self.assertIsNone(phone_search.classify("438-555-0199", [{"url": "https://site.ca/x", "title": "Courtier",
+                                                                  "snippet": "Other number 514 555 0000"}]))
+
 
 if __name__ == "__main__":
     unittest.main()

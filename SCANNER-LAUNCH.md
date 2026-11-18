@@ -69,6 +69,14 @@ broker match found in it. Ads Stefan captures or pastes himself, and alert email
 17 Nov keep their text as it was until the board lists them again. Numbers stay in `data/desk.sqlite3` on this computer. The review card shows them with a call link and where each came
 from ("from the ad text" or "shown on the board").
 
+**Broker check by number (18 Nov).** Each captured number is searched on the web once (again after 60 days), up to
+20 per read, 3 s apart, through an official search API: Brave Search (`phone_search.provider: "brave"` and
+`brave_api_key`, from api.search.brave.com) or Google Programmable Search (`"google"`, `google_api_key` and an engine
+id `google_cx` set to search the whole web). Not Google's own result pages: Google forbids automated queries there
+and answers them with CAPTCHAs. A number found on a brokerage or listing site (realtor.ca, Centris, RE/MAX, Royal
+LePage, Sutton...) or next to broker wording marks the ad "Likely broker: Landlord's number found online with a
+broker (on <site>)". Results are in the `phone_searches` table. Off until a provider and key are set.
+
 What each board allows, checked on one live ad page per board on 17 Nov:
 
 | Board | Number printed in the ad | Show-number button | Reveal by the desk |

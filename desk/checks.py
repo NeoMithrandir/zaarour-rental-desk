@@ -46,7 +46,7 @@ def _digits(phone):
 
 
 class Checker:
-    def __init__(self, areas, settings, known_posters=None):
+    def __init__(self, areas, settings, known_posters=None, found_brokers=None):
         self.areas = areas
         self.min_rent = settings.get("min_rent", 0)
         self.fsa_to_area, self.prefix_to_area = {}, {}
@@ -64,6 +64,7 @@ class Checker:
         for pid, label in (known_posters or {}).items():
             self.poster_ids[pid] = label
         self.centris = self._load_centris(DATA_DIR / "centris_active_rentals.csv")
+        self.found_brokers = found_brokers or {}  # number digits -> where a web search found it (phone_search.py)
 
     # -- reference data ---------------------------------------------------
     def _load_brokers(self, path):
@@ -172,6 +173,9 @@ class Checker:
             hits.append("Phone matches a known broker")
         if emails & self.emails:
             hits.append("Email matches a known broker")
+        for n in (lead.get("phone") or "").split(", "):
+            if _digits(n) in self.found_brokers:
+                hits.append(f"Landlord's number found online with a broker ({self.found_brokers[_digits(n)]})")
         hits += lead.get("number_hits") or []  # from a check of the original text, kept when rechecking it blanked
         pid = lead.get("poster_id")
         if pid and pid in self.poster_ids:

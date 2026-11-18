@@ -176,6 +176,7 @@ def reveal_phones(conn, settings, fetcher, log, boards):
     """Landlords' numbers behind show-number buttons, on the boards just read (never after an alerts-only read)."""
     if not any(b in SCANNERS for b in boards) or not hasattr(fetcher, "robots"):
         return 0
+    from . import phone_search
     try:
         return phones.reveal(conn, settings, fetcher, log, only=boards)
     except Exception as e:  # never lose the read over it
@@ -184,6 +185,10 @@ def reveal_phones(conn, settings, fetcher, log, boards):
     finally:
         if hasattr(fetcher, "save"):
             fetcher.save()
+        try:  # then look the numbers up: a broker's number is an extra broker flag
+            phone_search.run(conn, settings, log)
+        except Exception as e:
+            log(f"  ! Number search: {e}")
 
 
 class Scanner:

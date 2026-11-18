@@ -14,7 +14,8 @@ SOURCES = {"kijiji": kijiji, "craigslist": craigslist, "logisquebec": logisquebe
 
 
 def checker_for(conn, settings=None):
-    return Checker(load_areas(), settings or load_settings(), db.known_posters(conn))
+    from .phone_search import found_brokers
+    return Checker(load_areas(), settings or load_settings(), db.known_posters(conn), found_brokers(conn))
 
 
 def process(conn, leads, checker):
