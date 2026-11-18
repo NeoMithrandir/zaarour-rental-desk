@@ -6,10 +6,11 @@ from . import alerts, capture, db
 from .checks import Checker, bucket
 from .config import load_areas, load_settings
 from .outreach import detect_lang
-from .sources import appartogo, craigslist, kijiji, lespac, livrent, logisquebec
+from .sources import appartogo, craigslist, facebook, kijiji, lespac, livrent, logisquebec, louer, padmapper, rentalsca
 
 SOURCES = {"kijiji": kijiji, "craigslist": craigslist, "logisquebec": logisquebec, "livrent": livrent,
            "appartogo": appartogo, "lespac": lespac,
+           "rentalsca": rentalsca, "padmapper": padmapper, "louer": louer, "facebook": facebook,
            "alerts": alerts}
 
 

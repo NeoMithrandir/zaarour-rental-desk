@@ -46,7 +46,7 @@
   },
 
   "_sources_comment": "Routes the desk uses. 'alerts' reads Stefan's own saved-search emails and is always on. The six scanners (kijiji, craigslist, logisquebec, livrent, appartogo, lespac) are listed here but read nothing until that board's entry under 'permissions' is turned on. Facebook, Rentals.ca, PadMapper/Zumper and Louer.ca have no scanner: email alerts where the board offers them, the capture button otherwise. See SCANNER-LAUNCH.md.",
-  "sources": ["kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac", "alerts"],
+  "sources": ["kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac", "rentalsca", "padmapper", "louer", "facebook", "alerts"],
 
   "_permissions_comment": "One entry per scanner. A board is read only when scan_enabled is true AND letter names the board's written permission (file path or email subject and date) AND expires (YYYY-MM-DD, optional) has not passed. Copy the limits the letter sets: max_requests_per_hour caps requests per board per hour, min_interval_seconds spaces requests to its site. Nesi turns scan_enabled on, in config/settings.json, once the permission is given. If the letter itself is not filed yet, letter holds the statement the permission rests on (who, where, date) and letter_pending is true: the board is read and the desk shows 'Permission letter pending'. When the letter is filed, put its path in letter and set letter_pending to false. allow_contact_capture (default false) lets the desk keep landlords' phone numbers from that board (see contacts below). Turn it on only when the permission covers collecting contact details, and say where in contact_basis: the desk ignores the flag while contact_basis is empty.",
   "permissions": {
@@ -55,6 +55,10 @@
     "logisquebec": {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
     "livrent":     {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
     "appartogo":   {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
+    "rentalsca":   {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
+    "padmapper":   {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
+    "louer":       {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
+    "facebook":    {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""},
     "lespac":      {"scan_enabled": false, "letter": "", "granted_by": "", "granted_on": "", "expires": "", "max_requests_per_hour": null, "min_interval_seconds": null, "letter_pending": false, "allow_contact_capture": false, "contact_basis": ""}
   },
 
@@ -74,7 +78,7 @@
 
   "scan": {
     "_comment": "A board is read again only when its last good read is older than its freshness window (minutes). Requests to one host are at least min_interval_seconds apart (more if robots.txt sets a Crawl-delay), plus up to jitter x that at random.",
-    "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360, "lespac": 180, "alerts": 30},
+    "freshness_minutes": {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360, "lespac": 180, "rentalsca": 360, "padmapper": 360, "louer": 360, "facebook": 360, "alerts": 30},
     "auto_refresh_minutes": 60,
     "min_interval_seconds": 6,
     "jitter": 0.5,
@@ -104,6 +108,12 @@
   "craigslist": {"url": "https://montreal.craigslist.org/search/apa?purveyor=owner&sort=date"},
   "logisquebec": {"regions": ["ile-de-montreal", "laval", "monteregie", "laurentides", "lanaudiere"], "pages_per_region": 3, "delay_seconds": 4},
   "livrent": {"cities": ["montreal", "laval", "longueuil", "brossard"], "delay_seconds": 4},
+
+  "_api_boards_comment": "Rentals.ca, PadMapper/Zumper, Louer.ca and Facebook are read only through access the company issues (sources/api_feed.py). Fill api once it arrives: endpoint (the listings URL for Greater Montreal), key, key_header and key_prefix (how the key is sent, e.g. Authorization + 'Bearer '), items (where the listings sit in the JSON, e.g. 'data.listings'), fields (lead field -> path in each listing, e.g. {\"source_id\": \"id\", \"url\": \"url\", \"title\": \"title\", \"price\": \"rent.amount\", \"address\": \"location.address\", \"lat\": \"location.lat\", \"lng\": \"location.lng\", \"image\": \"photos.0.url\"}), page_param and max_pages if it pages. The board is read only once this and its permissions entry are filled.",
+  "rentalsca": {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
+  "padmapper": {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
+  "louer":     {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
+  "facebook":  {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
   "appartogo": {"categories": ["appartement-louer", "condo-louer"], "regions": ["ile-de-montreal", "laval", "monteregie"], "pages_per_region": 3},
   "lespac": {"url": "https://www.lespac.com/montreal/immobilier-location-logements_b457g17567k1R2.jsa"}
 }

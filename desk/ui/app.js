@@ -673,7 +673,7 @@
   // ------------------------------------------------------------ background reading of the boards
   // The desk opens on what it already has; stale boards are read behind it. New ads join the counts
   // without moving the ad Stefan is looking at.
-  const NAMES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", appartogo: "Appartogo", lespac: "LesPAC", alerts: "alert emails" };
+  const NAMES = { kijiji: "Kijiji", craigslist: "Craigslist", logisquebec: "LogisQuébec", livrent: "liv.rent", appartogo: "Appartogo", lespac: "LesPAC", rentalsca: "Rentals.ca", padmapper: "PadMapper / Zumper", louer: "Louer.ca", facebook: "Facebook", alerts: "alert emails" };
   const ago = (s) => { const m = Math.round((Date.now() - Date.parse(s)) / 60000); return isNaN(m) ? "" : m < 2 ? "just now" : m < 90 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
   let scanWasRunning = false, scanTimer = null;
   async function pollScan() {

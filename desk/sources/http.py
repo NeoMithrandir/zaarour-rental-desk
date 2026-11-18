@@ -258,12 +258,15 @@ class PoliteFetcher:
         return r
 
     # -- the request
-    def __call__(self, url, conditional=True, headers=None):
-        """GET one page. `headers` adds request headers a board needs (e.g. LesPAC's sort-order cookie)."""
+    def __call__(self, url, conditional=True, headers=None, issued_api=False):
+        """GET one page. `headers` adds request headers a board needs (e.g. LesPAC's sort-order cookie).
+
+        issued_api: the URL is an API endpoint the board issued the desk a key for (sources/api_feed.py). Its
+        robots.txt speaks to crawlers of the public site, so it is not consulted; pacing and back-off still apply."""
         u = urllib.parse.urlsplit(url)
         host = u.netloc.lower()
         self._check_cooling(host)
-        robots = self.robots(host, u.scheme or "https")
+        robots = Robots("") if issued_api else self.robots(host, u.scheme or "https")
         if not robots.allowed(url):
             raise Disallowed(f"robots.txt on {host} asks robots not to read {u.path}{'?' + u.query if u.query else ''}")
         delay = max(self.min_interval, robots.crawl_delay or 0, self.host_min_interval.get(host, 0))

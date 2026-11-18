@@ -42,6 +42,17 @@ false, and copy any limits it sets.
 The safeguards are unchanged: honest user agent, robots.txt, the spacing and limits above, back-off, and a stop at any
 CAPTCHA, bot check or sign-in.
 
+## Boards read through issued access (18 Nov)
+
+Rentals.ca, PadMapper/Zumper, Louer.ca and Facebook now have readers (`desk/sources/rentalsca.py`, `padmapper.py`,
+`louer.py`, `facebook.py`, all built on `api_feed.py`). Their pages sit behind bot checks or a sign-in, so these
+readers never read pages: each waits for the feed or API key the company issues. When it arrives, fill that board's
+`api` entry in `settings.json` (endpoint, key, how the key is sent, and where the listings and their fields sit in the
+JSON, from the company's documentation) and its `permissions` entry. Until then the desk shows "waiting for the API
+access the board issues". Louer.ca's listing data includes landlords' contact details: ask which fields the access
+returns. Facebook is a scaffold only: Meta has no API for reading Marketplace or group listings, so it can only run
+on a feed Meta or a licensed partner issues.
+
 ## Landlord phone numbers (off until the permission covers contact details)
 
 The permission requests said no contact details would be collected (point 4), so phone numbers are a separate switch

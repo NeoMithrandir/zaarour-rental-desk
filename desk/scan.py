@@ -10,13 +10,13 @@ import time
 from datetime import date, datetime, timedelta
 
 from . import db
-from .sources import details, http, phones
+from .sources import api_feed, details, http, phones
 
 DEFAULT_FRESHNESS = {"kijiji": 180, "craigslist": 180, "logisquebec": 360, "livrent": 1440, "appartogo": 360,
-                     "lespac": 180}
+                     "lespac": 180, "rentalsca": 360, "padmapper": 360, "louer": 360, "facebook": 360}
 # Boards the desk reads by itself. Each needs the board's written permission on file (settings `permissions`)
 # before it reads anything; the alert inbox only reads Stefan's own email, so it needs none.
-SCANNERS = ("kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac")
+SCANNERS = ("kijiji", "craigslist", "logisquebec", "livrent", "appartogo", "lespac") + api_feed.BOARDS
 HOSTS = {"kijiji": ["www.kijiji.ca"], "craigslist": ["montreal.craigslist.org", "www.craigslist.org"],
          "logisquebec": ["www.logisquebec.com"], "livrent": ["liv.rent"],
          "appartogo": ["appartogo.com"], "lespac": ["www.lespac.com"]}
@@ -38,6 +38,8 @@ def permission(settings, source, today=None):
     expires = str(p.get("expires") or "").strip()
     if expires and date.fromisoformat(expires) < (today or date.today()):
         return f"permission expired on {expires}"
+    if source in api_feed.BOARDS and api_feed.missing(settings.get(source)):
+        return "waiting for the API access the board issues (%s.api)" % source
     return None
 
 
@@ -133,7 +135,7 @@ def run(conn, settings, force=False, log=print, fetcher=None, only=None, reveal=
                 continue
             board_fetcher = Budget(fetcher, left, name)
         if terms.get("min_interval_seconds") and hasattr(fetcher, "host_min_interval"):
-            for host in HOSTS.get(name, []):
+            for host in HOSTS.get(name, []) + api_feed.hosts(settings, name):
                 fetcher.host_min_interval[host] = float(terms["min_interval_seconds"])
         log(f"Reading {name}...")
         started = db.now()

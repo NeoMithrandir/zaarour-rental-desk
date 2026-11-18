@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from desk import alerts, capture, db, feed, learn, phone_search, scan  # noqa: E402
 from desk.checks import Checker  # noqa: E402
 from desk.config import CONFIG_DIR, load_areas, load_settings  # noqa: E402
-from desk.sources import appartogo, craigslist, details, http, kijiji, lespac, phones  # noqa: E402
+from desk.sources import api_feed, appartogo, craigslist, details, http, kijiji, lespac, phones  # noqa: E402
 from tests.test_desk import FIXTURE, BoardTests, ad, page_html  # noqa: E402
 
 KIJIJI_ROBOTS = """User-Agent: Mediapartners-Google
@@ -646,6 +646,49 @@ class PhoneSearchTests(unittest.TestCase):
                                                                 "snippet": "Courtier immobilier, 438 555 0199"}]))
         self.assertIsNone(phone_search.classify("438-555-0199", [{"url": "https://site.ca/x", "title": "Courtier",
                                                                   "snippet": "Other number 514 555 0000"}]))
+
+
+class ApiBoardTests(unittest.TestCase):
+    """Rentals.ca, PadMapper, Louer.ca and Facebook: read only through access the board issues."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = db.connect(Path(self.tmp.name) / "t.sqlite3")
+        self.settings = load_settings()
+        self.settings["sources"] = ["rentalsca"]
+        self.settings["permissions"] = {"rentalsca": {"scan_enabled": True, "letter": "letters/rentalsca.pdf"}}
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_idle_until_access_is_issued(self):
+        self.assertIn("API access", scan.permission(self.settings, "rentalsca"))
+        web = FakeWeb({})
+        self.assertEqual(scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))["boards_read"], 0)
+        self.assertEqual(web.asked, [])
+
+    def test_reads_the_issued_feed_with_its_key_and_field_map(self):
+        endpoint = "https://api.rentals.ca/v1/listings?city=montreal"
+        self.settings["rentalsca"] = {"api": {
+            "endpoint": endpoint, "key": "secret", "key_header": "X-Api-Key", "key_prefix": "", "items": "data.listings",
+            "fields": {"source_id": "id", "url": "url", "title": "title", "price": "rent.amount",
+                       "address": "location.address", "lat": "location.lat", "lng": "location.lng", "image": "photos.0.url"},
+            "page_param": "", "max_pages": 1}}
+        body = json.dumps({"data": {"listings": [
+            {"id": 42, "url": "https://rentals.ca/montreal/x", "title": "4 1/2 Lachine", "rent": {"amount": "1650"},
+             "location": {"address": "Lachine, QC H8S 1A1", "lat": 45.43, "lng": -73.67},
+             "photos": [{"url": "https://img/1.jpg"}]}]}})
+        # The public site's robots.txt disallows everything; the issued API endpoint is still read.
+        web = FakeWeb({endpoint: (200, {}, body)}, robots="User-agent: *\nDisallow: /")
+        self.assertIsNone(scan.permission(self.settings, "rentalsca"))
+        c = scan.run(self.conn, self.settings, log=lambda *_: None, fetcher=fetcher_for(web))
+        self.assertEqual(c["new"], 1)
+        (url, headers), = [a for a in web.asked if "robots" not in a[0]]
+        self.assertEqual(headers["X-Api-Key"], "secret")
+        self.assertIn("ZaarourRentalsDesk", headers["User-Agent"])
+        row = self.conn.execute("SELECT * FROM leads WHERE id='rentalsca:42'").fetchone()
+        self.assertEqual((row["price"], row["image"], row["source"]), (1650, "https://img/1.jpg", "rentalsca"))
 
 
 if __name__ == "__main__":
