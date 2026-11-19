@@ -136,10 +136,12 @@ Nothing here sends anything. It only changes how a draft is worded; Stefan reads
 
 ## Sending
 
-Approve copies the message and opens the ad. On the ad, open the board's message box (signed in as yourself), click
-the **Fill from desk** bookmark (install it from **Browser buttons**), read the message and click the board's Send.
-The bookmark fills the message and, where the form asks and they're empty, Stefan's name, email and phone. It never
-clicks Send. No board lets the desk submit its form itself (sign-ins, CAPTCHAs): see BOARDS.md, Sending.
+Approve copies the message and opens the ad. With the desk's Chrome extension, the board's message box fills by
+itself (on Kijiji right away; on other boards once you click Send message, Contact or Reply): read it and click the
+board's Send. Install it once: `chrome://extensions`, turn on Developer mode, **Load unpacked**, pick the `extension`
+folder of this repo. Without it (Safari), open the message box and click the **Fill from desk** bookmark (install it
+from **Browser buttons**). Both fill the message and, where the form asks and they're empty, Stefan's name, email and
+phone. Neither ever clicks Send. No board lets the desk submit its form itself (sign-ins, CAPTCHAs): see BOARDS.md, Sending.
 
 ## Notes
 

@@ -6,8 +6,10 @@ Stefan's click:
 
 1. Approve (or "Open to send" in To send) copies the message and opens the ad, with the message and
    Stefan's contact details tucked in the address after "#zdesk=" (the part after # never leaves the browser).
-2. On the ad, Stefan opens the board's message box (signed in as himself) and clicks the "Fill from desk"
-   bookmark: it puts the message in the box, and his name, email and phone in empty contact fields.
+2. On the ad, the desk's Chrome extension (extension/, loaded once from chrome://extensions) waits for the board's
+   message box and fills it by itself: the message, and his name, email and phone in empty contact fields. On Kijiji
+   the box is on the ad; elsewhere it appears once he clicks Send message, Contact or Reply. Without the extension
+   (Safari), he opens the box and clicks the "Fill from desk" bookmark, which does the same.
 3. He reads it, clicks the board's own Send button (and answers the board's CAPTCHA if it asks), and
    the desk asks him whether it went.
 

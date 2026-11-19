@@ -150,7 +150,7 @@
   function sendHint(l) {
     const r = l.send || {};
     const needs = (r.needs || []).length ? ` Needs: ${r.needs.join(", ")}.` : "";
-    return `On ${esc(r.name || "the board")}: ${esc(r.where || "its message box")}, click <b>Fill from desk</b>, read it, Send.${esc(needs)}`;
+    return `On ${esc(r.name || "the board")}: ${esc(r.where || "its message box")}. The message fills in by itself (desk extension) or with <b>Fill from desk</b>; read it, Send.${esc(needs)}`;
   }
 
   function composer(l) {
@@ -500,7 +500,7 @@
       return toast("The message couldn't be copied automatically. It's selected: press ⌘C first.", false, ["I copied it, open the ad", () => approve(l, true)]);
     }
     openAd(l, text);
-    await act(l, { action: "approve", message: text, shown: { custom: m.custom, lang: m.lang } }, "Approved. Ad opened: open its message box, click Fill from desk (or ⌘V), send it, then come back.");
+    await act(l, { action: "approve", message: text, shown: { custom: m.custom, lang: m.lang } }, "Approved. Ad opened: its message box fills by itself with the desk's Chrome extension (or click Fill from desk, or ⌘V). Send it, then come back.");
     pendingSend = { lead: l, at: Date.now() };
   }
 

@@ -7,6 +7,7 @@ CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
 TEMPLATE_DIR = ROOT / "templates"
 UI_DIR = Path(__file__).resolve().parent / "ui"
+EXTENSION_DIR = ROOT / "extension"  # the Chrome extension that fills a board's message box (desk/send.py)
 DB_PATH = DATA_DIR / "desk.sqlite3"
 
 

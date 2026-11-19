@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Zaarour desk: fill messages",
+  "version": "1.0",
+  "description": "Puts the message approved on the Zaarour rentals desk in the board's message box when the desk opens an ad. It never sends.",
+  "content_scripts": [{
+    "matches": [
+      "*://*.kijiji.ca/*", "*://*.logisquebec.com/*", "*://liv.rent/*", "*://*.liv.rent/*",
+      "*://*.appartogo.com/*", "*://appartogo.com/*", "*://*.lespac.com/*", "*://*.facebook.com/*",
+      "*://*.rentals.ca/*", "*://rentals.ca/*", "*://*.padmapper.com/*", "*://*.zumper.com/*",
+      "*://*.louer.ca/*", "*://louer.ca/*", "*://*.duproprio.com/*"
+    ],
+    "js": ["fill.js"],
+    "run_at": "document_idle"
+  }]
+}

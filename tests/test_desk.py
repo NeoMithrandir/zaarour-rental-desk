@@ -652,6 +652,19 @@ class DraftTests(unittest.TestCase):
         self.assertTrue(js.startswith("javascript:"))
         self.assertNotIn("click()", js)                                    # it fills, it never presses Send
 
+    def test_fill_extension(self):
+        from desk.config import EXTENSION_DIR
+        manifest = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
+        script = (EXTENSION_DIR / manifest["content_scripts"][0]["js"][0]).read_text(encoding="utf-8")
+        self.assertIn("zdesk=", script)                                    # only ads the desk opened
+        self.assertNotIn("click()", script)                                # it fills, it never presses Send
+        self.assertNotIn(".submit(", script)
+        matches = " ".join(manifest["content_scripts"][0]["matches"])
+        for host in ("kijiji.ca", "logisquebec.com", "liv.rent", "appartogo.com", "lespac.com", "facebook.com"):
+            self.assertIn(host, matches)
+        self.assertNotIn("permissions", manifest)                          # no access beyond those pages
+        self.assertIn("Load unpacked", capture.install_page(lambda title, body, nav: body))
+
 
 class ApproachTests(unittest.TestCase):
     """Drafts lean toward the ways of opening that landlords answer, lightly until there is enough to go on."""

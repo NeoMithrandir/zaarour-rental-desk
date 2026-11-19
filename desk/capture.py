@@ -8,11 +8,12 @@ checks it and clicks Add. Nothing runs unless he clicks, and nothing reads any p
 The data travels in the address fragment (#...), which stays in the browser and is never sent to a server.
 """
 import hashlib
+import html
 import json
 import re
 import urllib.parse
 
-from .config import UI_DIR
+from .config import EXTENSION_DIR, UI_DIR
 
 HOSTS = [  # (host pattern, source key)
     (r"(^|\.)facebook\.com$", "facebook"), (r"(^|\.)kijiji\.ca$", "kijiji"), (r"(^|\.)craigslist\.org$", "craigslist"),
@@ -94,9 +95,23 @@ window with the ad filled in, you check it and click Add. It goes through the sa
 <p class="muted">The button reads only the page you are looking at, only when you click it, and only what is on screen. It does not
 open other pages, sign in, or read your messages or contacts.</p>
 
-<h2 id="fill">The Fill button</h2>
-<p class="lede">For sending. When you approve a message, the desk copies it and opens the ad. Open the board's message box
-(Send message, Contact, Reply), click <b>Fill from desk</b> on the bar, read the message, then click the board's own Send.</p>
+<h2 id="fill">Filling the board's message box</h2>
+<p class="lede">When you approve a message, the desk copies it and opens the ad. With the desk's Chrome extension, the
+board's message box fills by itself as soon as it's on the page (on Kijiji, right away; elsewhere, once you click Send
+message, Contact or Reply). You read it and click the board's own Send.</p>
+<ol class="steps">
+<li><strong>Once, in Chrome:</strong> open <code>chrome://extensions</code>, turn on <b>Developer mode</b> (top right), click
+<b>Load unpacked</b> and choose the <code>extension</code> folder inside the desk's folder (<code>{{ext}}</code>).</li>
+<li><strong>That's it.</strong> Approve on the desk, and the ad opens with the message in its box and a green note saying so.
+It also fills your name, email and phone where the form asks for them and they're empty.</li>
+</ol>
+<p class="muted">The extension only acts on ads the desk opened (it reads the message the desk put after # in the ad's
+address, which stays in your browser). It never clicks Send, never signs in, and reads nothing else on the page. If the
+board sends you to its sign-in page first, the message waits in that tab for 15 minutes.</p>
+
+<h3>Without the extension: the Fill button</h3>
+<p class="lede">In Safari, or a Chrome without the extension: open the board's message box (Send message, Contact,
+Reply), click <b>Fill from desk</b> on the bar, read the message, then click the board's own Send.</p>
 <ol class="steps">
 <li><strong>Drag this button onto the bar:</strong> <a class="btn primary" href="{{fill}}" onclick="event.preventDefault(); alert('Drag this button onto your bookmarks bar, then click it in a board\'s message box.');">Fill from desk</a></li>
 <li><strong>On the ad</strong>, signed in to the board as yourself, open its message box and click <b>Fill from desk</b>. It fills
@@ -105,7 +120,8 @@ the message, and your name, email and phone where the form asks for them and the
 </ol>
 <p class="muted">The Fill button never clicks Send and never signs in. It takes the message from the ad's address (the desk adds it
 after #, which stays in your browser), or from your clipboard if the board's sign-in page dropped it.</p>"""
-    return page("Browser buttons", body.replace("{fill}", bookmarklet(name="fill-bookmarklet.js")), "leads")
+    body = body.replace("{fill}", bookmarklet(name="fill-bookmarklet.js")).replace("{ext}", html.escape(str(EXTENSION_DIR)))
+    return page("Browser buttons", body, "leads")
 
 
 def from_capture(data):
