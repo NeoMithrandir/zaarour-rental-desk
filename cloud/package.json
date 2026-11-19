@@ -1,0 +1,20 @@
+{
+  "name": "zaarour-rentals-desk-cloud",
+  "private": true,
+  "type": "module",
+  "description": "The rentals desk on Cloudflare (Worker + D1). The scanners stay on the Mac and push new ads here.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "wrangler dev --local --port 8790 --local-upstream localhost:8790",
+    "db:local": "wrangler d1 migrations apply rentals-desk --local",
+    "db:remote": "wrangler d1 migrations apply rentals-desk --remote",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0"
+  }
+}

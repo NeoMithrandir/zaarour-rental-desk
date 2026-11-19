@@ -1,0 +1,52 @@
+# The rentals desk on Cloudflare. Deploy steps: cloud/README.md.
+name = "zaarour-rentals-desk"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+# Only rentals.zaarour.ca (behind Cloudflare Access) serves the desk: no public workers.dev address.
+workers_dev = false
+preview_urls = false
+
+routes = [{ pattern = "rentals.zaarour.ca", custom_domain = true }]
+
+[build]
+command = "node scripts/build.mjs"
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+# Every request goes through the Worker first, so the sign-in check covers the files too.
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rentals-desk"
+database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+migrations_dir = "migrations"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.txt", "**/*.csv"]
+fallthrough = true
+
+[vars]
+# The team's Cloudflare Access address (Zero Trust, Settings, Custom Pages: <team>.cloudflareaccess.com).
+ACCESS_TEAM_DOMAIN = "REPLACE_WITH_TEAM.cloudflareaccess.com"
+# The "Rentals desk" Access application's Application Audience (AUD) tag (Access, Applications, Rentals desk, Overview).
+ACCESS_AUD = "REPLACE_WITH_THE_AUD_TAG"
+# A second check after Access: only these addresses get in (leave empty to rely on the Access policy alone).
+ALLOWED_EMAILS = "ali@zaarour.ca,laurence@zaarour.ca,stefan@zaarour.ca,nesi@zaarour.ca,tania@zaarour.ca"
+
+[triggers]
+# 06:00 UTC daily (1 or 2 a.m. in Montreal): set aside ads waiting longer than expire_after_days.
+crons = ["0 6 * * *"]
+
+[observability]
+enabled = true
+
+# Optional: keep a private copy of each scanned lease's pages. Create the bucket first:
+#   npx wrangler r2 bucket create rentals-desk-scans
+# then uncomment:
+# [[r2_buckets]]
+# binding = "SCANS"
+# bucket_name = "rentals-desk-scans"

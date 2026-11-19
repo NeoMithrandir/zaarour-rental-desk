@@ -117,5 +117,7 @@
   "louer":     {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
   "facebook":  {"api": {"endpoint": "", "key": "", "key_header": "Authorization", "key_prefix": "Bearer ", "items": "", "fields": {}, "page_param": "", "max_pages": 3}},
   "appartogo": {"categories": ["appartement-louer", "condo-louer"], "regions": ["ile-de-montreal", "laval", "monteregie"], "pages_per_region": 3},
-  "lespac": {"url": "https://www.lespac.com/montreal/immobilier-location-logements_b457g17567k1R2.jsa"}
+  "lespac": {"url": "https://www.lespac.com/montreal/immobilier-location-logements_b457g17567k1R2.jsa"},
+  "_cloud_comment": "The online desk at rentals.zaarour.ca (cloud/README.md). Empty url or token: this Mac runs its own desk as before. With both set, this Mac reads the boards and sends the ads there, and morning/serve open the online desk. access_client_id/secret: the Cloudflare Access service token for this Mac. token: the desk's AGENT_TOKEN secret. None of this is sent to the online desk.",
+  "cloud": {"url": "", "access_client_id": "", "access_client_secret": "", "token": ""}
 }

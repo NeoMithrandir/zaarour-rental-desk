@@ -200,9 +200,11 @@ def read_file(path):
     return records
 
 
-def import_inbox(conn=None, paths=None, log=print, dry_run=False):
-    """Import every file in data/import/inbox/ (or the given paths), then file them away."""
+def import_inbox(conn=None, paths=None, log=print, dry_run=False, importer=None):
+    """Import every file in data/import/inbox/ (or the given paths), then file them away.
+    importer(records, dry_run) -> report sends them elsewhere (the online desk, cloud.py) instead of this Mac's tracker."""
     conn = conn or db.connect()
+    importer = importer or (lambda records, dry_run: import_records(conn, records, dry_run=dry_run))
     inbox, done, rejected = IMPORT_DIR / "inbox", IMPORT_DIR / "done", IMPORT_DIR / "rejected"
     for d in (inbox, done, rejected):
         d.mkdir(parents=True, exist_ok=True)
@@ -211,7 +213,7 @@ def import_inbox(conn=None, paths=None, log=print, dry_run=False):
     for f in files:
         records = read_file(f)
         bad = [r for r in records if "_bad_line" in r]
-        report = import_records(conn, [r for r in records if "_bad_line" not in r], dry_run=dry_run)
+        report = importer([r for r in records if "_bad_line" not in r], dry_run)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         rej = report["rejected"] + [{"record": r, "errors": [f"line {r['_bad_line']} is not valid JSON: {r['_error']}"]} for r in bad]
         if rej and not dry_run:

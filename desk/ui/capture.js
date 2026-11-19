@@ -41,7 +41,7 @@
       done.textContent = `Added to ${where}. This window closes by itself.`; done.className = "banner"; done.hidden = false; form.hidden = true;
       setTimeout(() => window.close(), 1500);
     } catch (err) {
-      done.textContent = "The desk didn't answer. Is it running? Start it, then click Add again."; done.className = "banner bad"; done.hidden = false;
+      done.textContent = "The desk didn't answer. Check that the desk opens in this browser (and you're signed in), then click Add again."; done.className = "banner bad"; done.hidden = false;
     }
   });
 })();

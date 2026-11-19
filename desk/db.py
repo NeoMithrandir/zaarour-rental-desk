@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS rentals (
 );
 """
 
+# The ad's facts (what the scanners read). Writing any of them stamps changed_at; the decisions don't.
+FACT_COLUMNS = ["source", "source_id", "url", "title", "snippet", "address", "area", "phase", "lat", "lng", "price", "bedrooms",
+                "unit_type", "poster_id", "poster_type", "posted_at", "image", "search", "lang", "flags", "bucket", "detailed",
+                "phone", "phone_via", "phone_checked_at"]
+_STAMP = "strftime('%Y-%m-%dT%H:%M:%f', 'now')"
+CHANGED_TRIGGERS = f"""
+CREATE TRIGGER IF NOT EXISTS leads_added AFTER INSERT ON leads
+BEGIN UPDATE leads SET changed_at = {_STAMP} WHERE id = NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS leads_refreshed AFTER UPDATE OF {", ".join(FACT_COLUMNS)} ON leads
+BEGIN UPDATE leads SET changed_at = {_STAMP} WHERE id = NEW.id; END;
+"""
+
 LEAD_FIELDS = ["id", "source", "source_id", "url", "title", "snippet", "address", "area", "phase", "lat", "lng",
                "price", "bedrooms", "unit_type", "poster_id", "poster_type", "posted_at", "image",
                "search", "lang", "flags", "bucket", "detailed"]
@@ -91,6 +103,10 @@ def connect(path=None):
     for col in ("phone", "phone_via", "phone_checked_at"):
         if col not in {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}:
             conn.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT")
+    # When the scanners last added or refreshed an ad, so the online desk gets only what changed (cloud.py).
+    if "changed_at" not in {r["name"] for r in conn.execute("PRAGMA table_info(leads)")}:
+        conn.execute("ALTER TABLE leads ADD COLUMN changed_at TEXT")
+    conn.executescript(CHANGED_TRIGGERS)
     return conn
 
 

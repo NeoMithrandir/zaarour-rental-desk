@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `npm run dev` on this computer (never committed). On localhost only, DEV_USER_EMAIL stands in
+# for the Cloudflare Access sign-in.
+DEV_USER_EMAIL=nesi@zaarour.ca
+AGENT_TOKEN=dev-agent-token
+# ANTHROPIC_API_KEY=sk-ant-...

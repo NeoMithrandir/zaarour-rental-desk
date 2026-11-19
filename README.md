@@ -19,6 +19,13 @@ Stefan's daily tool for the 2027 rental plan (the plan lives in the separate Zaa
 | E.2 Leases | A printable lease prep sheet laid out by the sections of the mandatory TAL lease form, filled from the same form. |
 | Scorecard | The desk test (300 messages, 6 or more signed listings is a success, 2 or fewer is the sign to stop), which way of opening a message landlords answer most, then surfaced, sent, rejected, replied, presentations and signed listings per source per week. See [What works](#what-works). |
 
+## The online desk
+
+The desk can run online at **rentals.zaarour.ca** (Cloudflare Worker + D1, behind Cloudflare Access), with the board
+scanners staying on the office Mac and sending new ads up after each read. Setup, the daily routine and rollback:
+[cloud/README.md](cloud/README.md). Until the `cloud` block in `config/settings.json` is filled in, everything below
+works as before on the Mac alone.
+
 ## How Stefan runs it (Mac)
 
 Once:

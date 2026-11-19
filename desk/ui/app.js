@@ -176,7 +176,7 @@
     try {
       res = await (await fetch("/api/lead/" + encodeURIComponent(l.id) + "/draft", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang, fresh: !!fresh, other: !!other }) })).json();
-    } catch (e) { res = { error: "The desk didn't answer. Is it still running?" }; }
+    } catch (e) { res = { error: "The desk didn't answer. Check your connection (and that you're still signed in), then try again." }; }
     delete drafting[key];
     if (res.error) draftErr[key] = res.error;
     else {
@@ -523,7 +523,7 @@
   }
 
   async function act(l, body, msg) {
-    try { await post(l.id, body); } catch (e) { return toast("That didn't save. Is the desk still running?"); }
+    try { await post(l.id, body); } catch (e) { return toast("That didn't save. Check your connection (and that you're still signed in), then try again."); }
     const index = data.leads.indexOf(l);
     undoStack.push({ tab, items: [{ lead: { ...l }, index, inverse: inverse(l, body) }] });
     const stays = tab === "sent" && !["unsend"].includes(body.action);
@@ -581,7 +581,7 @@
   async function markPendingSent() {
     const l = pendingSend.lead;
     pendingSend = null; hideSendCheck();
-    try { await post(l.id, { action: "sent" }); } catch (e) { return toast("That didn't save. Is the desk still running?"); }
+    try { await post(l.id, { action: "sent" }); } catch (e) { return toast("That didn't save. Check your connection (and that you're still signed in), then try again."); }
     undoStack.push({ tab: "approved", items: [{ lead: { ...l, status: "approved" }, index: 0, inverse: { action: "unsend" } }] });
     if (tab === "approved") { data.leads = data.leads.filter((x) => x.id !== l.id); render(); }
     refreshCounts();
@@ -703,6 +703,8 @@
     const pending = (s.boards || []).filter((b) => b.letter_pending && !b.waiting).map((b) => NAMES[b.source] || b.source);
     bar.textContent = (read.length ? `Boards last read: ${read.join(", ")}.` : "") + (failed.length ? ` Couldn't read ${failed.join(", ")} last time.` : "")
       + (pending.length ? ` Permission letter pending: ${pending.join(", ")}.` : "");
+    // On the online desk, the boards are read by the office Mac: say so when it hasn't been heard from.
+    if (s.mac_away) bar.textContent += s.mac_seen ? ` The Mac that reads the boards was last heard from ${ago(s.mac_seen)}.` : " The Mac that reads the boards hasn't connected yet.";
     bar.hidden = !bar.textContent;
     if (scanWasRunning) {
       scanWasRunning = false;
@@ -713,7 +715,8 @@
   }
   $("#scanbtn").addEventListener("click", async () => {
     const r = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
-    if (!r.started && !r.running) toast("Every board was read recently. Nothing to do.");
+    if (r.mac_away) toast("The Mac that reads the boards isn't answering. Check that it's on and awake.");
+    else if (!r.started && !r.running) toast("Every board was read recently. Nothing to do.");
     pollScan();
   });
   pollScan();
