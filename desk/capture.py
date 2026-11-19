@@ -67,9 +67,11 @@ def canonical_id(url, source=None):
     return f"{source or 'other'}:" + hashlib.sha1(clean.encode()).hexdigest()[:12]
 
 
-def bookmarklet(port=8765, name="capture-bookmarklet.js"):
+def bookmarklet(port=8765, name="capture-bookmarklet.js", origin=None):
+    """origin is the address the desk was opened at (rentals.zaarour.ca through the tunnel), so the button
+    sends ads back there; without one it is this computer's own desk."""
     js = (UI_DIR / name).read_text(encoding="utf-8")
-    js = js.replace("__DESK__", f"http://127.0.0.1:{port}/capture")
+    js = js.replace("__DESK__", f"{origin or f'http://127.0.0.1:{port}'}/capture")
     js = re.sub(r"^\s*//.*$", "", js, flags=re.M)
     js = re.sub(r"\s*\n\s*", " ", js).strip()
     return "javascript:" + urllib.parse.quote(js, safe="(){}[]=>;:,.'!*+-/&|?_$")
@@ -80,8 +82,8 @@ def capture_page(page):
     return page("Send to desk", body + '<script src="/ui/capture.js"></script>', "leads")
 
 
-def install_page(page):
-    link = bookmarklet()
+def install_page(page, origin=None):
+    link = bookmarklet(origin=origin)
     body = f"""<h1>The capture button</h1>
 <p class="lede">For boards the desk doesn't read by itself: Facebook Marketplace and groups, Rentals.ca, PadMapper/Zumper,
 Appartogo, LesPAC and Louer.ca. Browse them as usual. On an ad worth a message, click the button: the desk opens a small

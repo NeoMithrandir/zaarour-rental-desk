@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -205,6 +206,12 @@ class BoardTests(unittest.TestCase):
         h = capture.install_page(web.page)
         self.assertNotIn("{fill}", h)
         self.assertEqual(h.count('href="javascript:'), 2)  # Send to desk and Fill from desk
+
+    def test_capture_button_follows_the_desk_address(self):
+        self.assertIn("http://127.0.0.1:8765/capture", urllib.parse.unquote(capture.bookmarklet()))
+        online = capture.install_page(lambda title, body, nav: body, "https://rentals.zaarour.ca")
+        self.assertIn("https://rentals.zaarour.ca/capture", urllib.parse.unquote(online))
+        self.assertNotIn("127.0.0.1", urllib.parse.unquote(online))
 
     def test_money(self):
         self.assertEqual([money("1 195$"), money("$1,200"), money("1 200,50 $"), money("")], [1195, 1200, 1200, None])

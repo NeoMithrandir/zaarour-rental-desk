@@ -8,6 +8,7 @@ import html
 import io
 import json
 import mimetypes
+import re
 import sys
 import urllib.parse
 from datetime import date, timedelta
@@ -606,6 +607,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _origin(self):
+        """The address this page was opened at: https://rentals.zaarour.ca through the Cloudflare tunnel,
+        None (this computer's own address) otherwise or when the Host header looks odd."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9.-]+(:\d+)?", host) or host.split(":")[0] in ("127.0.0.1", "localhost"):
+            return None
+        proto = "https" if (self.headers.get("X-Forwarded-Proto") or "https").lower() == "https" else "http"
+        return f"{proto}://{host}"
+
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8")
 
@@ -634,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/capture":
                 return self._send(200, capture.capture_page(page))
             if path == "/capture/install":
-                return self._send(200, capture.install_page(page))
+                return self._send(200, capture.install_page(page, self._origin()))
             if path == "/api/counts":
                 return self._json({"counts": lead_counts(conn), "today": today_counts(conn)})
             if path == "/api/leads":
