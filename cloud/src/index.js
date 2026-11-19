@@ -2,7 +2,7 @@
 // with the data in D1. Cloudflare Access signs people in; auth.js checks every request again.
 import * as api from "./api.js";
 import { identify } from "./auth.js";
-import { bookmarklet, installBody } from "./capture.js";
+import { ROUTES, bookmarklet, installBody } from "./capture.js";
 import { Desk } from "./config.js";
 import * as drafts from "./drafts.js";
 import { scanResponse } from "./leaseScan.js";
@@ -59,7 +59,7 @@ async function getRoute(desk, env, request, url) {
     const fill = bookmarklet(await asset(env, request, "/ui/fill-bookmarklet.js"), url.origin);
     return html(pages.page("Browser buttons", installBody(cap, fill), "leads", who));
   }
-  if (p === "/api/counts") return json({ counts: await api.leadCounts(desk.db), today: await api.todayCounts(desk.db) });
+  if (p === "/api/counts") return json({ counts: await api.leadCounts(desk.db, api.hiddenSources(settings)), today: await api.todayCounts(desk.db) });
   if (p === "/api/leads") return json(await api.apiLeads(desk, url.searchParams.get("tab") || "review", url.searchParams.get("phase") || ""));
   if (p === "/rentals" || p.startsWith("/rentals/") || p === "/rentals.csv") return redirect("/leases" + p.slice("/rentals".length) + url.search, 301);
   if (p === "/leases/new") return html(pages.leaseForm(settings, { keepsScans: Boolean(env.SCANS), who }));
@@ -121,6 +121,12 @@ async function postRoute(desk, env, ctx, request, url) {
   if (p === "/api/scan") return json(await api.requestScan(desk, body));
   if (p === "/api/recheck") return json(await api.recheckAll(desk));
   if (p === "/me/details") { await profile.saveDetails(desk, body); return redirect("/me?saved=details"); }
+  if (p === "/me/boards") {
+    const s = (await desk.kv("desk_settings")) || {};
+    s.hidden_sources = Object.keys(ROUTES).filter((k) => !(`show_${k}` in body));
+    await desk.put("desk_settings", s);
+    return redirect("/me?saved=boards#boards");
+  }
   if ((m = p.match(/^\/me\/template\/([a-z_]+)$/)) && m[1] in profile.TEMPLATES) {
     const name = m[1];
     const errors = await profile.saveTemplate(desk, name, body.text || "");

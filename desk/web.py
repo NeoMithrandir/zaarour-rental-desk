@@ -337,6 +337,7 @@ def stats_page(conn, settings=None):
 
 SAVED = {"details": "Your details are saved. New messages use them now.",
          "samples": "Your past messages are saved.",
+         "boards": "Saved. The review screen shows the ticked boards' new ads.",
          "samples-off": "Your past messages are saved. They'll shape your French and English wording once custom "
                         "messages are switched on (drafts.provider in config/settings.json).",
          "suggested": "Your past messages are saved, and the desk rewrote your French and English first messages "
@@ -350,6 +351,17 @@ document.querySelectorAll("form").forEach(f => {
   f.addEventListener("submit", () => { sending = f; });
 });
 addEventListener("beforeunload", e => { if ([...dirty].some(f => f !== sending)) e.preventDefault(); });</script>"""
+
+
+def boards_form(settings):
+    """Which boards' new ads the review screen shows. Unticked boards keep being read and stored."""
+    hidden = set(hidden_sources(settings))
+    boxes = "".join(f'<label class="field check"><input type="checkbox" name="show_{k}"{"" if k in hidden else " checked"}>'
+                    f'<span>{esc(r["name"])}</span></label>' for k, r in send.ROUTES.items())
+    return f"""<form method="post" action="/me/boards" class="form card" id="boards"><h2>Boards on the desk</h2>
+<p class="muted">Untick a board to keep its new ads off the review screen. Its scanner keeps reading it and the ads are kept,
+so ticking it again brings them back. Ads already approved, sent or in Later stay where they are. This is for the whole team.</p>
+<div class="grid">{boxes}</div><div class="actions-row"><button class="primary" type="submit">Save boards</button></div></form>"""
 
 
 def my_details_page(settings, saved="", errors=None, typed=None, note=""):
@@ -388,6 +400,7 @@ def my_details_page(settings, saved="", errors=None, typed=None, note=""):
 message the desk shows you. The line about brokers is always added to first messages, even if you remove it.</p>
 {banner}<form method="post" action="/me/details" class="form card"><h2>Contact details</h2>
 <div class="grid">{details}</div><div class="actions-row"><button class="primary" type="submit">Save details</button></div></form>
+{boards_form(settings)}
 <h2>Message wording</h2>
 <p class="muted">Words in curly brackets, like {{agent_phone}}, are filled in by the desk. Keep them as they are.</p>
 {templates}
@@ -411,6 +424,8 @@ def api_leads(conn, settings, tab, phase=""):
     }
     bucket = tab if tab in ("broker", "hidden") else "review"
     where, args = wheres.get(tab, ("status='new' AND bucket=?", (bucket,)))
+    if tab not in wheres:  # boards switched off on My details: still read, not shown
+        where, args = where + hidden_sql(settings), tuple(args) + tuple(hidden_sources(settings))
     # Phase 1 areas first, then owners before property managers, newest first within each.
     if phase in ("1", "2"):
         where, args = f"({where}) AND phase=?", tuple(args) + (int(phase),)
@@ -435,18 +450,30 @@ def api_leads(conn, settings, tab, phase=""):
         d["send"] = send.route(d["source"])
         out.append(d)
     agent = settings.get("agent", {})
-    return {"leads": out, "counts": lead_counts(conn), "today": today_counts(conn),
+    return {"leads": out, "counts": lead_counts(conn, settings), "today": today_counts(conn),
             "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS,
             "drafting": drafts.status(settings), "learning": approaches.brief(conn, settings),
             "agent": {"n": agent.get("name", ""), "e": agent.get("email", ""), "p": agent.get("phone", "")}}
 
 
-def lead_counts(conn):
+def hidden_sources(settings):
+    """Boards whose new ads stay off the review screen (settings hidden_sources, switched on My details)."""
+    return [str(b) for b in (settings or {}).get("hidden_sources") or []]
+
+
+def hidden_sql(settings):
+    n = len(hidden_sources(settings))
+    return f" AND source NOT IN ({','.join('?' * n)})" if n else ""
+
+
+def lead_counts(conn, settings=None):
     """Cards per tab. Waiting ads count once per poster, exactly like the cards (see poster_key)."""
+    settings = settings if settings is not None else load_settings()
     counts = {r["status"]: r["n"] for r in conn.execute(
         "SELECT status, COUNT(*) n FROM leads WHERE status!='new' GROUP BY status")}
     seen = set()
-    for r in conn.execute("SELECT id, bucket, source, poster_id, title FROM leads WHERE status='new'"):
+    for r in conn.execute("SELECT id, bucket, source, poster_id, title FROM leads WHERE status='new'" + hidden_sql(settings),
+                          hidden_sources(settings)):
         b = r["bucket"]
         key = poster_key(dict(r)) if b in ("review", "broker") else None
         if key and (b, key) in seen:
@@ -646,7 +673,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/capture/install":
                 return self._send(200, capture.install_page(page, self._origin()))
             if path == "/api/counts":
-                return self._json({"counts": lead_counts(conn), "today": today_counts(conn)})
+                return self._json({"counts": lead_counts(conn, settings), "today": today_counts(conn)})
             if path == "/api/leads":
                 return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0]))
             if path == "/rentals" or path.startswith("/rentals/") or path == "/rentals.csv":
@@ -764,6 +791,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/me/details":
                 profile.save_details(body)
                 return self._send(303, "", headers={"Location": "/me?saved=details"})
+            if path == "/me/boards":
+                profile.save_boards(body)
+                return self._send(303, "", headers={"Location": "/me?saved=boards#boards"})
             if path.startswith("/me/template/") and path[len("/me/template/"):] in profile.TEMPLATES:
                 name = path[len("/me/template/"):]
                 errors = profile.save_template(name, body.get("text", ""))

@@ -57,6 +57,15 @@ def save_details(form):
     _write(path, json.dumps(raw, ensure_ascii=False, indent=2) + "\n")
 
 
+def save_boards(form):
+    """Boards on the desk: a board left unticked keeps being read, but its new ads stay off the review screen."""
+    from .send import ROUTES
+    path = CONFIG_DIR / "settings.json"
+    raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    raw["hidden_sources"] = [k for k in ROUTES if f"show_{k}" not in form]
+    _write(path, json.dumps(raw, ensure_ascii=False, indent=2) + "\n")
+
+
 def read_template(name):
     return (TEMPLATE_DIR / f"{name}.txt").read_text(encoding="utf-8")
 

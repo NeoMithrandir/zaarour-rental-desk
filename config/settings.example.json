@@ -21,6 +21,8 @@
   "lease_scan_effort": "low",
 
   "message_char_limit": 1000,
+  "_hidden_sources_comment": "Boards whose new ads the desk doesn't show (Review, Likely broker, Hidden and their counts). The scanners keep reading and storing them; ads already approved, sent or in Later stay visible. Switched on My details, Boards on the desk.",
+  "hidden_sources": ["craigslist"],
 
   "_drafts_comment": "Custom messages: one message per ad, written in Stefan's style from his past messages. samples_path is a folder of .txt/.md/.eml files (one message per file, or several split by a line of ---), relative to rentals-desk/ or absolute. provider: \"\" (templates only), \"lmstudio\" (local, LM Studio's server on this Mac, nothing leaves it) or \"claude\" (the ad and the samples go to the Claude API; uses anthropic_api_key). auto writes the message when an ad is opened. Each message is written with one way of opening from config/approaches.json, and the desk leans toward the ones landlords answer most (see learn below). Once an approach has proven_min answered messages, up to proven_max of them (as Stefan sent them) are shown to the model as examples of that approach. Stefan still reads and approves every message.",
   "drafts": {

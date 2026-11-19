@@ -5,6 +5,7 @@ import * as drafts from "./drafts.js";
 import * as leases from "./leases.js";
 import * as profile from "./profile.js";
 import * as tal from "./tal.js";
+import { ROUTES } from "./capture.js";
 import { Outreach } from "./outreach.js";
 import { addDays, esc, g, iso, money0, money2, todayDate } from "./util.js";
 
@@ -306,6 +307,7 @@ export async function statsPage(db, settings, defs, draftingOn, who) {
 const SAVED = {
   details: "Your details are saved. New messages use them now.",
   samples: "Your past messages are saved.",
+  boards: "Saved. The review screen shows the ticked boards' new ads.",
   "samples-off": "Your past messages are saved. They'll shape your French and English wording once custom "
     + "messages are switched on (drafts.provider in config/settings.json on the Mac).",
   suggested: "Your past messages are saved, and the desk rewrote your French and English first messages "
@@ -319,6 +321,17 @@ document.querySelectorAll("form").forEach(f => {
   f.addEventListener("submit", () => { sending = f; });
 });
 addEventListener("beforeunload", e => { if ([...dirty].some(f => f !== sending)) e.preventDefault(); });</script>`;
+
+/** Which boards' new ads the review screen shows. Unticked boards keep being read and stored. */
+function boardsForm(settings) {
+  const hidden = new Set((settings.hidden_sources || []).map(String));
+  const boxes = Object.entries(ROUTES).map(([k, r]) => `<label class="field check"><input type="checkbox" name="show_${k}"${hidden.has(k) ? "" : " checked"}>`
+    + `<span>${esc(r.name)}</span></label>`).join("");
+  return `<form method="post" action="/me/boards" class="form card" id="boards"><h2>Boards on the desk</h2>
+<p class="muted">Untick a board to keep its new ads off the review screen. Its scanner keeps reading it and the ads are kept,
+so ticking it again brings them back. Ads already approved, sent or in Later stay where they are. This is for the whole team.</p>
+<div class="grid">${boxes}</div><div class="actions-row"><button class="primary" type="submit">Save boards</button></div></form>`;
+}
 
 /** The signed-in person's contact details, the team's message wording and style samples, each saved by its own button. */
 export async function myDetailsPage(desk, { saved = "", errors = {}, typed = {}, note = "" } = {}) {
@@ -357,6 +370,7 @@ message the desk shows you. The line about brokers is always added to first mess
 Your contact details are yours alone (${esc(desk.user.email)}); the message wording and style samples are shared by the team.</p>
 ${banner}<form method="post" action="/me/details" class="form card"><h2>Contact details</h2>${whose}
 <div class="grid">${details}</div><div class="actions-row"><button class="primary" type="submit">Save details</button></div></form>
+${boardsForm(settings)}
 <h2>Message wording</h2>
 <p class="muted">Words in curly brackets, like {agent_phone}, are filled in by the desk. Keep them as they are.</p>
 ${templates}

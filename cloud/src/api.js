@@ -30,11 +30,17 @@ async function all(db, sql, ...args) {
   return (await db.prepare(sql).bind(...args).all()).results;
 }
 
-export async function leadCounts(db) {
+/** Boards whose new ads stay off the review screen (settings hidden_sources, switched on My details). */
+export function hiddenSources(settings) {
+  return (settings?.hidden_sources || []).map(String);
+}
+const hiddenSql = (hidden) => (hidden.length ? ` AND source NOT IN (${hidden.map(() => "?").join(",")})` : "");
+
+export async function leadCounts(db, hidden = []) {
   const counts = {};
   for (const r of await all(db, "SELECT status, COUNT(*) n FROM leads WHERE status!='new' GROUP BY status")) counts[r.status] = r.n;
   const seen = new Set();
-  for (const r of await all(db, "SELECT id, bucket, source, poster_id, title FROM leads WHERE status='new'")) {
+  for (const r of await all(db, "SELECT id, bucket, source, poster_id, title FROM leads WHERE status='new'" + hiddenSql(hidden), ...hidden)) {
     const b = r.bucket;
     const key = ["review", "broker"].includes(b) ? posterKey(r) : null;
     const k = `${b}\u0001${key || r.id}`;
@@ -65,6 +71,8 @@ export async function apiLeads(desk, tab, phase = "") {
   const wheres = { approved: ["status='approved'", []], sent: ["status='sent'", []], later: ["status='later'", []], rejected: ["status='rejected'", []] };
   const bkt = ["broker", "hidden"].includes(tab) ? tab : "review";
   let [where, args] = wheres[tab] || ["status='new' AND bucket=?", [bkt]];
+  const hidden = hiddenSources(settings);
+  if (!wheres[tab]) { where += hiddenSql(hidden); args = [...args, ...hidden]; } // switched off: still read, not shown
   if (["1", "2"].includes(phase)) { where = `(${where}) AND phase=?`; args = [...args, parseInt(phase, 10)]; }
   const order = tab === "sent" ? "sent_at DESC" : ["approved", "rejected"].includes(tab) ? "decided_at DESC"
     : "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC";
@@ -94,7 +102,7 @@ export async function apiLeads(desk, tab, phase = "") {
   }
   const agent = settings.agent || {};
   const defs = await approachDefs(desk);
-  return { leads: out, counts: await leadCounts(db), today: await todayCounts(db),
+  return { leads: out, counts: await leadCounts(db, hidden), today: await todayCounts(db),
     limit: parseInt(settings.message_char_limit ?? 1000, 10), reasons: REJECT_REASONS,
     drafting: drafts.status(settings, await samplesOf(desk)), learning: await approaches.brief(db, settings, defs),
     agent: { n: agent.name || "", e: agent.email || "", p: agent.phone || "" }, me: desk.user.email };
