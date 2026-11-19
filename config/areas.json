@@ -1,5 +1,5 @@
 {
-  "_comment": "Every market from the research (rental-listing-boards-ranking.md and montreal-rental-ideas.md). Phase 1 = plan item 1.9 (Saint-Laurent to the West Island, Vaudreuil); these sort first on the review screen. Phase 2 = Laval, the rest of Montreal island, South Shore, North Shore. Changing an area's phase here also re-tags the ads already on file the next time the desk opens. An ad's area comes from its postal code (3-character FSA first, then 2-character catch-alls), else its city name, else its map coordinates (nearest centre within radius_km). FSA lists are approximate: edit freely.",
+  "_comment": "Every market from the research (rental-listing-boards-ranking.md and montreal-rental-ideas.md). Phase 1 = plan item 1.9 (Saint-Laurent to the West Island); these sort first on the review screen. Phase 2 = Vaudreuil / Ile-Perrot, Laval, the rest of Montreal island, South Shore, North Shore. Changing an area's phase here also re-tags the ads already on file the next time the desk opens. An ad's area comes from its postal code (3-character FSA first, then 2-character catch-alls), else its city name, else its map coordinates (nearest centre within radius_km). FSA lists are approximate: edit freely.",
   "areas": {
     "Saint-Laurent": {
       "phase": 1, "center": [45.507, -73.705], "radius_km": 4,
@@ -52,7 +52,7 @@
       "cities": ["baie-d'urfe", "baie d'urfe", "sainte-anne-de-bellevue", "ste-anne-de-bellevue", "senneville"]
     },
     "Vaudreuil / Ile-Perrot": {
-      "phase": 1, "center": [45.390, -74.010], "radius_km": 9,
+      "phase": 2, "center": [45.390, -74.010], "radius_km": 9,
       "fsa": ["J7V", "J7W", "J7T"],
       "cities": ["vaudreuil", "vaudreuil-dorion", "l'ile-perrot", "ile-perrot", "notre-dame-de-l'ile-perrot", "pincourt", "terrasse-vaudreuil", "saint-lazare"]
     },
