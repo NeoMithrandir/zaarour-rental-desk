@@ -431,13 +431,21 @@
   }
 
   // ------------------------------------------------------------ message box
+  // The board's own cap when one is known, else the desk's length target (Kijiji's box has none: send.py).
+  function limitFor(l) {
+    const r = l.send || {}, board = r.name || "the board";
+    if (r.max_chars) return { max: Math.min(r.max_chars, data.limit), what: r.max_chars < data.limit ? `${board}'s limit` : "the desk's length target", note: `${board} takes up to ${r.max_chars.toLocaleString("en-CA")}.` };
+    const note = r.max_chars_checked ? `${board}'s message box has no length limit (checked ${r.max_chars_checked}); shorter messages get read.` : `${board}'s own limit isn't known yet.`;
+    return { max: data.limit, what: "the desk's length target", note };
+  }
+
   function wireComposer(l, el) {
     const ta = $("textarea", el), c = $(".count", el);
     const count = () => {
-      const n = ta.value.length;
-      c.textContent = `${n.toLocaleString("en-CA")} / ${data.limit.toLocaleString("en-CA")}`;
-      c.classList.toggle("over", n > data.limit);
-      c.title = n > data.limit ? "Longer than the board's limit: shorten it before sending" : "Characters, against the board's limit";
+      const n = ta.value.length, lim = limitFor(l);
+      c.textContent = `${n.toLocaleString("en-CA")} / ${lim.max.toLocaleString("en-CA")}`;
+      c.classList.toggle("over", n > lim.max);
+      c.title = (n > lim.max ? `Longer than ${lim.what}: shorten it before sending. ` : `Characters, against ${lim.what}. `) + lim.note;
     };
     count();
     ta.addEventListener("input", () => { const e = (edits[l.id] = edits[l.id] || {}); e.lang = e.lang || msgFor(l).lang; e[e.lang] = ta.value; count(); });
@@ -485,7 +493,8 @@
   async function approve(l, force) {
     const ta = $(".composer textarea", stage), m = msgFor(l);
     const text = ta ? ta.value : m.text;
-    if (text.length > data.limit && !confirm(`The message is ${text.length} characters, over the board's ${data.limit} limit. Approve anyway?`)) return;
+    const lim = limitFor(l);
+    if (text.length > lim.max && !confirm(`The message is ${text.length} characters, over ${lim.what} (${lim.max}). Approve anyway?`)) return;
     if (!force && !(await copy(text))) {
       if (ta) { ta.focus(); ta.select(); }
       return toast("The message couldn't be copied automatically. It's selected: press ⌘C first.", false, ["I copied it, open the ad", () => approve(l, true)]);

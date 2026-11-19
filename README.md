@@ -9,7 +9,7 @@ Stefan's daily tool for the 2027 rental plan (the plan lives in the separate Zaa
 | Learning | Every Approve, Reject (with reason), Later and outcome is logged with the ad's signals and the message template used. `learnings/` holds plain-markdown findings per board and per signal, written so an agent can follow them; small samples are marked tentative. See [learnings/README.md](learnings/README.md). |
 | 1.3 Auto-filtering | Drops tenant ads (lease transfers, sublets, rooms) and anything outside the target area. Flags likely brokers (broker wording, agency names, known broker phones/emails, posters Stefan rejected as brokers before). Checks the address against a Centris export once one is loaded; until then each card has a "check Centris / Realtor" link. |
 | 1.4 Send | **Approve** copies the message and opens the ad; Stefan pastes it in the board's contact box and sends, then confirms **Mark sent** (approved ads wait in **To send** until then). Nothing is sent automatically. |
-| 1.5 / 1.6 Message | French and English templates with the broker disclaimer, a character counter against the platform limit, and the disclaimer re-added if an edit drops it. |
+| 1.5 / 1.6 Message | French and English templates with the broker disclaimer, a character counter against the desk's length target (or a board's own limit, once one is known), and the disclaimer re-added if an edit drops it. |
 | 1.8 Property managers | Kept, tagged, shown after owners. All ads from one poster collapse into one card (on Craigslist, which has no poster ids, identical titles count as one poster), so a manager with 8 ads gets one message. |
 | 1.9 Geography | Phase 1 areas sort to the top; phase 2 areas carry a "Phase 2" tag, and a filter at the top shows one phase at a time. |
 | 1.10 Second touch | The **Sent** tab has a short follow-up message ready for non-responders. |
@@ -57,7 +57,7 @@ Other commands: `python3 -m desk fetch` (read stale boards and stop; `--force` r
 - **Known brokers:** `config/known_brokers.csv`. Rows are `keyword`, `phone`, `email` or `poster_id`.
 - **Centris check:** put a Matrix export of active rentals at `data/centris_active_rentals.csv`, then `python3 -m desk recheck`.
 - **Message:** `templates/outreach_fr.txt`, `outreach_en.txt`, `followup_*.txt`. Placeholders: `{city}`, `{agent_name}`, `{agent_phone}`, `{agency}`, `{rental_page_url}`.
-- **Character limit:** `message_char_limit` (1000 by default; Stefan to confirm Kijiji's real limit).
+- **Character limit:** `message_char_limit` (1000 by default) is the desk's own length target: templates, custom messages and the composer's counter keep under it. Kijiji's message box has no length limit (checked 2026-11-19: no maxlength, no length check, no "too long" error in its form). A board with a real cap gets `max_chars` in `desk/send.py`, and the counter uses whichever is lower.
 
 ## Email alerts
 

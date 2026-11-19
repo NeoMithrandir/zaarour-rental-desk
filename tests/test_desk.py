@@ -632,6 +632,9 @@ class DraftTests(unittest.TestCase):
 
     def test_send_routes_and_fill_button(self):
         self.assertIn("Kijiji account, signed in", send.route("kijiji")["needs"])
+        # Kijiji's message box has no length cap: the composer counts against the desk's own target.
+        self.assertIsNone(send.route("kijiji")["max_chars"])
+        self.assertTrue(send.route("kijiji")["max_chars_checked"])
         self.assertEqual(send.route("unknown")["name"], "the board")
         js = send.fill_bookmarklet()
         self.assertTrue(js.startswith("javascript:"))

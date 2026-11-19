@@ -16,9 +16,14 @@ If the bookmark can't find the box, the message is still on the clipboard: ⌘V.
 from .capture import bookmarklet
 
 # needs: what the board asks before a message goes. checked: seen on the board (date), or "" = to confirm.
+# max_chars: the most the board's message box takes, once seen on the board (None: no limit found, or not checked).
+# Until a board has one, the composer counts against the desk's own length target (settings message_char_limit).
 ROUTES = {
     "kijiji": {"name": "Kijiji", "where": "the Send message box on the ad",
-               "needs": ["Kijiji account, signed in"], "checked": ""},
+               "needs": ["Kijiji account, signed in"], "checked": "",
+               # 2026-11-19: the ad's message box (and My Messages) has no maxlength, no length check and no
+               # "too long" error among its texts. A cap on Kijiji's server, if any, only shows on sending.
+               "max_chars": None, "max_chars_checked": "2026-11-19"},
     "craigslist": {"name": "Craigslist", "where": "Reply, then email: Craigslist gives a relay address, the message goes from your mailbox",
                    "needs": ["a CAPTCHA before the reply address shows", "your mail app or webmail"], "checked": ""},
     "logisquebec": {"name": "LogisQuébec", "where": "the contact form on the ad (name, email, phone, message)",
