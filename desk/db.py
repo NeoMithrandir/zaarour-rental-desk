@@ -116,6 +116,23 @@ def upsert_lead(conn, lead, refresh=True):
     return True
 
 
+def sync_phases(conn, areas):
+    """Re-tag stored ads when an area changes phase in config/areas.json, so sorting, the phase filter and the
+    "Phase 2" tag follow the new split for ads already on file. Returns how many ads changed."""
+    changed = 0
+    for name, a in areas.items():
+        n = int(a.get("phase", 1))
+        rows = conn.execute("SELECT id, flags FROM leads WHERE area=? AND phase IS NOT ?", (name, n)).fetchall()
+        for r in rows:
+            flags = [f for f in json.loads(r["flags"] or "[]") if f.get("code") != "phase2"]
+            if n > 1:
+                flags.append({"code": "phase2", "level": "info", "text": "Phase 2 area"})
+            conn.execute("UPDATE leads SET phase=?, flags=? WHERE id=?", (n, json.dumps(flags, ensure_ascii=False), r["id"]))
+        changed += len(rows)
+    conn.commit()
+    return changed
+
+
 def lead_dict(r):
     d = dict(r)
     d["flags"] = json.loads(d.get("flags") or "[]")

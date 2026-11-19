@@ -106,6 +106,17 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(c2["already_seen"], 8)
         self.assertEqual(self.conn.execute("SELECT status FROM leads WHERE id='kijiji:1'").fetchone()[0], "sent")
 
+    def test_phase_change_retags_stored_ads(self):
+        feed.process(self.conn, list(self.leads().values()), self.checker)
+        areas = load_areas()
+        areas["Pierrefonds-Roxboro"] = dict(areas["Pierrefonds-Roxboro"], phase=2)
+        self.assertEqual(db.sync_phases(self.conn, areas), 1)
+        phase, flags = self.conn.execute("SELECT phase, flags FROM leads WHERE id='kijiji:1'").fetchone()
+        self.assertEqual(phase, 2)
+        self.assertIn("phase2", {f["code"] for f in json.loads(flags)})
+        self.assertEqual(db.sync_phases(self.conn, load_areas()), 1)  # and back
+        self.assertNotIn("phase2", self.conn.execute("SELECT flags FROM leads WHERE id='kijiji:1'").fetchone()[0])
+
     def test_rejected_broker_poster_is_learned(self):
         db.mark_poster(self.conn, "kijiji", "p1", "Rejected as broker by Stefan")
         checker = Checker(load_areas(), self.settings, db.known_posters(self.conn))
@@ -119,6 +130,7 @@ class AreaTests(unittest.TestCase):
 
     def test_lookup_order(self):
         self.assertEqual(self.c.area_of("Pierrefonds, QC H8Z 1V2"), "Pierrefonds-Roxboro")   # FSA
+        self.assertEqual(self.c.phase["Laval"], 2)
         self.assertEqual(self.c.area_of("Rue X, Verdun, QC H4G 1J1"), "Montreal (other)")      # 2-letter catch-all
         self.assertEqual(self.c.area_of("Duffcourt, Lachine, QC"), "Lachine")                  # city name
         self.assertEqual(self.c.area_of("NDG, QC"), "NDG / Cote-des-Neiges (UdeM)")

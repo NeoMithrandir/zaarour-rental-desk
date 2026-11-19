@@ -805,6 +805,11 @@ def serve(port=8765, open_browser=True, scan_on_start=False):
             raise
         return _port_taken(port, url, open_browser)
     print(f"Rentals desk running at {url}  (Ctrl+C to stop)")
+    conn = db.connect()
+    try:
+        db.sync_phases(conn, load_areas())
+    finally:
+        conn.close()
     settings = load_settings()
     if scan_on_start:
         if not SCANNER.start(after=after_scan):

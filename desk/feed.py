@@ -46,6 +46,7 @@ def run_daily(log=print, fetcher=None, force=False):
     from . import scan
     settings = load_settings()
     conn = db.connect()
+    db.sync_phases(conn, load_areas())
     counts = scan.run(conn, settings, force=force, log=log, fetcher=fetcher)
     log(f"Done: {counts['new']} new ads ({counts['review']} to review, {counts['broker']} likely broker, "
         f"{counts['hidden']} hidden as tenant ads or out of area); {counts['already_seen']} already seen.")

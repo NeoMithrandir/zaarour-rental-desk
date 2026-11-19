@@ -1,5 +1,5 @@
 {
-  "_comment": "Every market from the research (rental-listing-boards-ranking.md and montreal-rental-ideas.md). Phase 1 = plan item 1.9 (Saint-Laurent to the West Island, Vaudreuil, Laval); these sort first on the review screen. Phase 2 = Montreal island, South Shore, North Shore. An ad's area comes from its postal code (3-character FSA first, then 2-character catch-alls), else its city name, else its map coordinates (nearest centre within radius_km). FSA lists are approximate: edit freely.",
+  "_comment": "Every market from the research (rental-listing-boards-ranking.md and montreal-rental-ideas.md). Phase 1 = plan item 1.9 (Saint-Laurent to the West Island, Vaudreuil); these sort first on the review screen. Phase 2 = Laval, the rest of Montreal island, South Shore, North Shore. Changing an area's phase here also re-tags the ads already on file the next time the desk opens. An ad's area comes from its postal code (3-character FSA first, then 2-character catch-alls), else its city name, else its map coordinates (nearest centre within radius_km). FSA lists are approximate: edit freely.",
   "areas": {
     "Saint-Laurent": {
       "phase": 1, "center": [45.507, -73.705], "radius_km": 4,
@@ -56,12 +56,12 @@
       "fsa": ["J7V", "J7W", "J7T"],
       "cities": ["vaudreuil", "vaudreuil-dorion", "l'ile-perrot", "ile-perrot", "notre-dame-de-l'ile-perrot", "pincourt", "terrasse-vaudreuil", "saint-lazare"]
     },
+
     "Laval": {
-      "phase": 1, "center": [45.580, -73.740], "radius_km": 11,
+      "phase": 2, "center": [45.580, -73.740], "radius_km": 11,
       "fsa": ["H7A", "H7B", "H7C", "H7E", "H7G", "H7H", "H7J", "H7K", "H7L", "H7M", "H7N", "H7P", "H7R", "H7S", "H7T", "H7V", "H7W", "H7X", "H7Y"],
       "cities": ["laval", "chomedey", "vimont", "auteuil", "fabreville", "duvernay", "sainte-dorothee", "ste-dorothee", "sainte-rose", "ste-rose", "laval-des-rapides", "pont-viau", "saint-francois", "laval-ouest", "laval-sur-le-lac", "saint-vincent-de-paul"]
     },
-
     "Downtown / Quartier latin (McGill, Concordia, UQAM)": {
       "phase": 2, "center": [45.503, -73.570], "radius_km": 2, "note": "Many competing brokers downtown; condos can go to Paul",
       "fsa": ["H3A", "H3B", "H3G", "H3H", "H2Z", "H2L", "H2X", "H2Y"],
