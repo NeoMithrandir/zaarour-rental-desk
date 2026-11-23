@@ -60,7 +60,8 @@ async function getRoute(desk, env, request, url) {
     return html(pages.page("Browser buttons", installBody(cap, fill), "leads", who));
   }
   if (p === "/api/counts") return json({ counts: await api.leadCounts(desk.db, api.hiddenSources(settings)), today: await api.todayCounts(desk.db) });
-  if (p === "/api/leads") return json(await api.apiLeads(desk, url.searchParams.get("tab") || "review", url.searchParams.get("phase") || ""));
+  if (p === "/api/leads") return json(await api.apiLeads(desk, url.searchParams.get("tab") || "review", url.searchParams.get("phase") || "",
+    url.searchParams.getAll("area")));
   if (p === "/rentals" || p.startsWith("/rentals/") || p === "/rentals.csv") return redirect("/leases" + p.slice("/rentals".length) + url.search, 301);
   if (p === "/leases/new") return html(pages.leaseForm(settings, { keepsScans: Boolean(env.SCANS), who }));
   if (p === "/leases") return html(pages.trackerPage(await leases.exportRows(desk.db), settings, who));

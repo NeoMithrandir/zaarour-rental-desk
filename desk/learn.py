@@ -34,6 +34,18 @@ REPLIED = ("replied", "presentation", "listing")
 
 
 # ---------------------------------------------------------------- signals
+# Reject reasons as the report counts them: the old name of a renamed reason counts under the new one, and
+# "Other: what was typed" counts as Other.
+RENAMED_REASONS = {"Already listed": "Already with an agency (listed by owner)"}
+
+
+def reason_label(reason):
+    reason = (reason or "").strip()
+    if reason.startswith("Other:"):
+        return "Other"
+    return RENAMED_REASONS.get(reason, reason)
+
+
 def _dt(s):
     try:
         return datetime.fromisoformat((s or "").replace("Z", "+00:00")).replace(tzinfo=None)
@@ -92,7 +104,7 @@ def rows(conn, no_reply_days=14, now=None):
             "lang": {"fr": "French", "en": "English"}.get(d.get("lang"), "unknown"),
             "words": title_words(d.get("title")),
             "approved": d["status"] in ("approved", "sent"), "rejected": d["status"] == "rejected",
-            "later": d["status"] == "later", "reason": d.get("reject_reason") or "",
+            "later": d["status"] == "later", "reason": reason_label(d.get("reject_reason")),
             "sent": d["status"] == "sent", "replied": d.get("outcome") in REPLIED,
             "presentation": d.get("outcome") in ("presentation", "listing"), "signed": d.get("outcome") == "listing",
             "outcome_known": known, "template": d.get("template") or "",

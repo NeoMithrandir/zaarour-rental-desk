@@ -17,6 +17,10 @@
   const SELECTABLE = ["review", "broker", "later", "rejected", "hidden"];
 
   let tab = "review", phase = store.get("phase", ""), data = null, cursor = 0;
+  // Areas ticked within the phase (none ticked = every area of the phase). "" is ads the desk couldn't place.
+  let areas = (() => { try { return JSON.parse(store.get("areas", "[]")); } catch (e) { return []; } })();
+  const areaName = (n) => (n ? n.replace(/\s*\(.*\)$/, "") : "Area unknown");
+  const where = () => (areas.length ? (areas.length > 2 ? `${areas.length} areas` : areas.map(areaName).join(" and ")) : phase ? `phase ${phase}` : "");
   // One at a time on a phone; the list with bulk actions is a desk thing.
   let view = matchMedia("(max-width: 640px)").matches ? "card" : store.get("view", "card");
   let rejecting = false, selected = new Set(), lastClicked = null, pendingSend = null;
@@ -30,8 +34,13 @@
 
   // ------------------------------------------------------------ data
   async function load(keepCursor) {
-    const r = await fetch(`/api/leads?tab=${tab}&phase=${phase}`);
+    const q = new URLSearchParams({ tab, phase });
+    areas.forEach((n) => q.append("area", n));
+    const r = await fetch(`/api/leads?${q}`);
     data = await r.json();
+    // Areas ticked under another phase don't apply here: drop them and ask again.
+    const known = new Set((data.areas || []).map((x) => x.name)), kept = areas.filter((n) => known.has(n));
+    if (kept.length !== areas.length) { setAreas(kept); return load(keepCursor); }
     if (!keepCursor) cursor = 0;
     selected.clear(); rejecting = false;
     renderChrome(); render();
@@ -59,6 +68,7 @@
       b.querySelector("b").textContent = n ? n.toLocaleString("en-CA") : "";
     });
     $$("#phase button").forEach((b) => b.classList.toggle("on", b.dataset.phase === phase));
+    renderAreas();
     $("#view").hidden = !TRIAGE.includes(tab);
     $$("#view button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
     const p = $("#progress");
@@ -68,8 +78,25 @@
       const done = (t.approved || 0) + (t.rejected || 0) + (t.later || 0);
       $("i", p).style.width = (done + left ? Math.round((100 * done) / (done + left)) : 100) + "%";
       const bits = [[t.approved, "approved"], [t.sent, "sent"], [t.rejected, "rejected"], [t.later, "for later"]].filter((x) => x[0]).map((x) => `${x[0]} ${x[1]}`);
-      $("span", p).innerHTML = `<b>${left.toLocaleString("en-CA")} left</b>${phase ? ` in phase ${phase}` : ""}` + (bits.length ? ` · today ${bits.join(", ")}` : "");
+      $("span", p).innerHTML = `<b>${left.toLocaleString("en-CA")} left</b>${where() ? ` in ${esc(where())}` : ""}` + (bits.length ? ` · today ${bits.join(", ")}` : "");
     }
+  }
+
+  function setAreas(list) { areas = list; store.set("areas", JSON.stringify(list)); }
+
+  // Tick boxes for the areas of the chosen phase; the number is the cards waiting there in this tab.
+  function renderAreas() {
+    const box = $("#areas"), list = data.areas || [];
+    box.hidden = !list.length;
+    box.innerHTML = list.map((x) => `<label class="${areas.includes(x.name) ? "on" : ""} ${x.n ? "" : "none"}" title="${esc(x.name || "Ads with no postal code, city or map point the desk recognises")}">`
+      + `<input type="checkbox" value="${esc(x.name)}"${areas.includes(x.name) ? " checked" : ""}>${esc(areaName(x.name))}${x.n ? ` <b>${x.n.toLocaleString("en-CA")}</b>` : ""}</label>`).join("")
+      + (areas.length ? `<button class="ghost" type="button" data-clear>Every area${phase ? ` in phase ${phase}` : ""}</button>` : "");
+    $$("input", box).forEach((i) => i.addEventListener("change", () => {
+      setAreas(i.checked ? [...areas, i.value] : areas.filter((n) => n !== i.value));
+      i.blur(); load();
+    }));
+    const clear = $("[data-clear]", box);
+    if (clear) clear.addEventListener("click", () => { setAreas([]); load(); });
   }
 
   // ------------------------------------------------------------ pieces
@@ -259,7 +286,7 @@
     wireComposer(l, $(".composer", stage));
     autoDraft(l);
     $$("[data-do]", stage).forEach((b) => b.addEventListener("click", () => cardAction(b.dataset.do)));
-    $$("[data-reason]", stage).forEach((b) => b.addEventListener("click", () => act(l, { action: "reject", reason: b.dataset.reason })));
+    $$("[data-reason]", stage).forEach((b) => b.addEventListener("click", () => pickReason(b.dataset.reason, (r) => act(l, { action: "reject", reason: r }))));
     swipe($("#leadcard"));
     // Preload the next photo so the next card appears instantly.
     const nx = data.leads[cursor + 1];
@@ -287,7 +314,7 @@
   function renderEmpty() {
     const c = data.counts, t = data.today || {};
     const msgs = {
-      review: [`You're through the pile${phase ? ` for phase ${phase}` : ""}.`, `New ads arrive with tomorrow's morning fetch.`],
+      review: [`You're through the pile${where() ? ` for ${esc(where())}` : ""}.`, `New ads arrive with tomorrow's morning fetch.`],
       broker: ["No likely brokers waiting.", ""],
       later: ["Nothing parked for later.", ""],
       approved: ["Nothing waiting to be sent.", "Approved ads wait here until you mark them sent."],
@@ -373,7 +400,7 @@
       if (comp) wireComposer(l, comp);
     });
     $$("[data-b]", stage).forEach((b) => b.addEventListener("click", () => bulk(b.dataset.b)));
-    $$("[data-breason]", stage).forEach((b) => b.addEventListener("click", () => bulk("reject:" + b.dataset.breason)));
+    $$("[data-breason]", stage).forEach((b) => b.addEventListener("click", () => pickReason(b.dataset.breason, (r) => bulk("reject:" + r))));
   }
 
   function toggle(i, range) {
@@ -409,6 +436,24 @@
       const k = what.slice(2);
       return act(l, l.outcome === k ? { action: "set_outcome", outcome: "" } : { action: k });
     }
+  }
+
+  // "Other" asks what the reason is (optional) and saves it as "Other: what was typed".
+  function pickReason(r, done) {
+    const box = $(".ab-reasons", stage);
+    if (r !== "Other" || !box) return done(r);
+    box.innerHTML = `<span class="q">Other reason</span><input class="other-why" type="text" maxlength="200" placeholder="What's the reason? (optional)" aria-label="Other reason (optional)">`
+      + `<button class="btn-reject" type="button" data-ok>✕ Reject <kbd>↵</kbd></button><button class="ghost" type="button" data-no>Cancel <kbd>Esc</kbd></button>`;
+    const input = $("input", box);
+    const ok = () => { const t = input.value.trim(); done(t ? `Other: ${t}` : "Other"); };
+    const no = () => { rejecting = false; render(); };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); ok(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); no(); }
+    });
+    $("[data-ok]", box).addEventListener("click", ok);
+    $("[data-no]", box).addEventListener("click", no);
+    input.focus();
   }
 
   async function bulk(what) {
@@ -659,7 +704,7 @@
     if (!l) return;
     if (rejecting && /^[1-9]$/.test(k)) {
       const r = data.reasons[+k - 1];
-      if (r) { e.preventDefault(); return isTriage() ? act(l, { action: "reject", reason: r }) : bulk("reject:" + r); }
+      if (r) { e.preventDefault(); return pickReason(r, (why) => isTriage() ? act(l, { action: "reject", reason: why }) : bulk("reject:" + why)); }
     }
     if (k === "j" || k === "arrowright" || (k === "arrowdown" && !isTriage())) { e.preventDefault(); return move(1); }
     if (k === "k" || k === "arrowleft" || (k === "arrowup" && !isTriage())) { e.preventDefault(); return move(-1); }

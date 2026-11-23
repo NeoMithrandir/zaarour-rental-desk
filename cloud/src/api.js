@@ -9,7 +9,7 @@ import { Outreach, detectLang } from "./outreach.js";
 import { json, now, sha1hex, syncStamp, today } from "./util.js";
 
 export const BROKER_LABEL = "Rejected as broker by Stefan";
-export const REJECT_REASONS = ["Broker", "Already listed", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"];
+export const REJECT_REASONS = ["Broker", "Already with an agency (listed by owner)", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"];
 const OUTCOMES = ["replied", "declined", "presentation", "listing", "no_reply"];
 const LOGGED = new Set(["approve", "sent", "reject", "later", "undo", "unsend", "set_outcome", ...OUTCOMES]);
 
@@ -66,7 +66,15 @@ async function samplesOf(desk) {
   return drafts.loadSamples((await desk.kv("samples")) || "");
 }
 
-export async function apiLeads(desk, tab, phase = "") {
+/** The areas of the chosen phase (all of them for All areas), in config order, with their card counts (desk/web.py area_chips). */
+export function areaChips(areas, phase, counts) {
+  const out = Object.entries(areas).map(([name, a]) => ({ name, phase: parseInt(a.phase ?? 1, 10), n: counts[name] || 0 }))
+    .filter((a) => !["1", "2"].includes(phase) || a.phase === parseInt(phase, 10));
+  if (counts[""]) out.push({ name: "", phase: null, n: counts[""] });
+  return out;
+}
+
+export async function apiLeads(desk, tab, phase = "", areas = []) {
   const db = desk.db, settings = await desk.settings();
   const wheres = { approved: ["status='approved'", []], sent: ["status='sent'", []], later: ["status='later'", []], rejected: ["status='rejected'", []] };
   const bkt = ["broker", "hidden"].includes(tab) ? tab : "review";
@@ -77,7 +85,7 @@ export async function apiLeads(desk, tab, phase = "") {
   const order = tab === "sent" ? "sent_at DESC" : ["approved", "rejected"].includes(tab) ? "decided_at DESC"
     : "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC";
   const rows = await all(db, `SELECT * FROM leads WHERE ${where} ORDER BY ${order} LIMIT 3000`, ...args);
-  const out = [], byPoster = {};
+  const cards = [], byPoster = {}, perArea = {};
   const groups = ["review", "broker"].includes(tab); // one card per poster: a manager with 8 ads gets one message
   for (const r of rows) {
     const d = leadDict(r);
@@ -88,8 +96,12 @@ export async function apiLeads(desk, tab, phase = "") {
     }
     d.others = [];
     if (key) byPoster[key] = d;
-    out.push(d);
+    cards.push(d);
+    perArea[d.area || ""] = (perArea[d.area || ""] || 0) + 1;
   }
+  // Ticked areas narrow the list; the counts on the area chips stay those of the whole phase.
+  const wanted = new Set(areas);
+  const out = wanted.size ? cards.filter((d) => wanted.has(d.area || "")) : cards;
   const msgs = new Outreach(desk, settings);
   const saved = await drafts.savedMany(db, out.map((d) => d.id));
   for (const d of out) {
@@ -104,6 +116,7 @@ export async function apiLeads(desk, tab, phase = "") {
   const defs = await approachDefs(desk);
   return { leads: out, counts: await leadCounts(db, hidden), today: await todayCounts(db),
     limit: parseInt(settings.message_char_limit ?? 1000, 10), reasons: REJECT_REASONS,
+    areas: areaChips(await desk.areas(), phase, perArea),
     drafting: drafts.status(settings, await samplesOf(desk)), learning: await approaches.brief(db, settings, defs),
     agent: { n: agent.name || "", e: agent.email || "", p: agent.phone || "" }, me: desk.user.email };
 }

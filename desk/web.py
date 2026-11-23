@@ -18,7 +18,7 @@ from . import approaches, capture, db, drafts, feed, learn, lease_import, lease_
 from .config import UI_DIR, load_areas, load_settings
 
 BROKER_LABEL = "Rejected as broker by Stefan"
-REJECT_REASONS = ["Broker", "Already listed", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"]
+REJECT_REASONS = ["Broker", "Already with an agency (listed by owner)", "Out of area", "Too small / low rent", "Bad property", "Tenant ad", "Other"]
 
 
 def esc(s):
@@ -415,7 +415,17 @@ first messages above in your style for you to review, and writes each ad's custo
 
 
 # ---------------------------------------------------------------- API
-def api_leads(conn, settings, tab, phase=""):
+def area_chips(areas, phase, counts):
+    """The areas of the chosen phase (all of them for All areas), in config order, with their card counts.
+    Ads the desk couldn't place show as 'Area unknown' when there are any."""
+    out = [{"name": n, "phase": int(a.get("phase") or 1), "n": counts.get(n, 0)} for n, a in areas.items()
+           if phase not in ("1", "2") or int(a.get("phase") or 1) == int(phase)]
+    if counts.get(""):
+        out.append({"name": "", "phase": None, "n": counts[""]})
+    return out
+
+
+def api_leads(conn, settings, tab, phase="", areas=()):
     wheres = {
         "approved": ("status='approved'", ()),
         "sent": ("status='sent'", ()),
@@ -431,7 +441,7 @@ def api_leads(conn, settings, tab, phase=""):
         where, args = f"({where}) AND phase=?", tuple(args) + (int(phase),)
     order = "sent_at DESC" if tab == "sent" else "decided_at DESC" if tab in ("approved", "rejected") else "COALESCE(phase, 9), (poster_type='owner') DESC, first_seen DESC, posted_at DESC"
     rows = conn.execute(f"SELECT * FROM leads WHERE {where} ORDER BY {order} LIMIT 3000", args).fetchall()
-    out, by_poster = [], {}
+    cards, by_poster, per_area = [], {}, {}
     for r in rows:
         d = db.lead_dict(r)
         # One message per poster: a manager with 8 ads gets one card, not 8 messages.
@@ -442,16 +452,22 @@ def api_leads(conn, settings, tab, phase=""):
         d["others"] = []
         if key:
             by_poster[key] = d
+        cards.append(d)
+        per_area[d.get("area") or ""] = per_area.get(d.get("area") or "", 0) + 1
+    # Ticked areas narrow the list; the counts on the area chips stay those of the whole phase.
+    wanted = set(areas)
+    out = [d for d in cards if (d.get("area") or "") in wanted] if wanted else cards
+    for d in out:
         d["message_fr"] = outreach.render(d, settings, "fr")
         d["message_en"] = outreach.render(d, settings, "en")
         d["followup_fr"] = outreach.render(d, settings, "fr", "followup")
         d["followup_en"] = outreach.render(d, settings, "en", "followup")
         d["drafts"] = drafts.saved(conn, d["id"])
         d["send"] = send.route(d["source"])
-        out.append(d)
     agent = settings.get("agent", {})
     return {"leads": out, "counts": lead_counts(conn, settings), "today": today_counts(conn),
             "limit": int(settings.get("message_char_limit", 1000)), "reasons": REJECT_REASONS,
+            "areas": area_chips(load_areas(), phase, per_area),
             "drafting": drafts.status(settings), "learning": approaches.brief(conn, settings),
             "agent": {"n": agent.get("name", ""), "e": agent.get("email", ""), "p": agent.get("phone", "")}}
 
@@ -675,7 +691,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/counts":
                 return self._json({"counts": lead_counts(conn, settings), "today": today_counts(conn)})
             if path == "/api/leads":
-                return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0]))
+                return self._json(api_leads(conn, settings, (qs.get("tab") or ["review"])[0], (qs.get("phase") or [""])[0],
+                                                 urllib.parse.parse_qs(url.query, keep_blank_values=True).get("area") or []))
             if path == "/rentals" or path.startswith("/rentals/") or path == "/rentals.csv":
                 # Old links (bookmarks, the boot page, the launcher) keep working after the rename.
                 new = "/leases" + path[len("/rentals"):]
