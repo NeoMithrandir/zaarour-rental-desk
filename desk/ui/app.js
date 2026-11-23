@@ -82,11 +82,17 @@
     }
   }
 
+  // Keep the numbers on the area boxes in step as cards leave the list (and come back on undo).
+  function bumpArea(l, d) {
+    const x = (data.areas || []).find((a) => a.name === (l.area || ""));
+    if (x) x.n = Math.max(0, x.n + d);
+  }
+
   function setAreas(list) { areas = list; store.set("areas", JSON.stringify(list)); }
 
   // Tick boxes for the areas of the chosen phase; the number is the cards waiting there in this tab.
   function renderAreas() {
-    const box = $("#areas"), list = data.areas || [];
+    const box = $("#areas"), list = data.areas || [], x = box.scrollLeft;  // a phone scrolls the row sideways: keep its place
     box.hidden = !list.length;
     box.innerHTML = list.map((x) => `<label class="${areas.includes(x.name) ? "on" : ""} ${x.n ? "" : "none"}" title="${esc(x.name || "Ads with no postal code, city or map point the desk recognises")}">`
       + `<input type="checkbox" value="${esc(x.name)}"${areas.includes(x.name) ? " checked" : ""}>${esc(areaName(x.name))}${x.n ? ` <b>${x.n.toLocaleString("en-CA")}</b>` : ""}</label>`).join("")
@@ -95,6 +101,7 @@
       setAreas(i.checked ? [...areas, i.value] : areas.filter((n) => n !== i.value));
       i.blur(); load();
     }));
+    box.scrollLeft = x;
     const clear = $("[data-clear]", box);
     if (clear) clear.addEventListener("click", () => { setAreas([]); load(); });
   }
@@ -470,6 +477,7 @@
     const entry = { tab, items: leads.map((l) => ({ lead: l, index: data.leads.indexOf(l), inverse: inverse(l, body) })) };
     undoStack.push(entry);
     data.leads = data.leads.filter((l) => !selected.has(l.id));
+    leads.forEach((l) => bumpArea(l, -1));
     selected.clear(); rejecting = false;
     render(); refreshCounts();
     toast(`${leads.length} ${verb(body)}.`, true);
@@ -573,7 +581,7 @@
     undoStack.push({ tab, items: [{ lead: { ...l }, index, inverse: inverse(l, body) }] });
     const stays = tab === "sent" && !["unsend"].includes(body.action);
     if (stays) l.outcome = body.action === "set_outcome" ? body.outcome || null : body.action;
-    else data.leads.splice(index, 1);
+    else { data.leads.splice(index, 1); bumpArea(l, -1); }
     rejecting = false;
     const y = window.scrollY; render(); if (!isTriage()) window.scrollTo(0, y);
     refreshCounts();
@@ -590,7 +598,7 @@
       const sorted = entry.items.slice().sort((a, b) => a.index - b.index);
       for (const it of sorted) {
         const at = data.leads.findIndex((x) => x.id === it.lead.id);
-        if (at >= 0) data.leads[at] = it.lead; else data.leads.splice(Math.min(it.index, data.leads.length), 0, it.lead);
+        if (at >= 0) data.leads[at] = it.lead; else { data.leads.splice(Math.min(it.index, data.leads.length), 0, it.lead); bumpArea(it.lead, 1); }
       }
       cursor = sorted[0].index;
       render(); refreshCounts();

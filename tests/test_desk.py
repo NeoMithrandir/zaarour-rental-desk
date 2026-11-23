@@ -332,6 +332,28 @@ class ReviewScreenTests(unittest.TestCase):
             res = self.web.api_leads(self.conn, self.settings, tab)
             self.assertEqual(res["counts"].get(tab, 0), len(res["leads"]), tab)
 
+    def test_area_boxes_filter_the_cards(self):
+        everything = self.web.api_leads(self.conn, self.settings, "review")
+        boxes = {a["name"]: a["n"] for a in everything["areas"]}
+        self.assertEqual(sum(boxes.values()), len(everything["leads"]))
+        area = next(n for n, k in boxes.items() if k)
+        picked = self.web.api_leads(self.conn, self.settings, "review", "", [area])
+        self.assertEqual({l["area"] or "" for l in picked["leads"]}, {area})
+        self.assertEqual(len(picked["leads"]), boxes[area])
+        self.assertEqual({a["name"]: a["n"] for a in picked["areas"]}, boxes)  # the boxes keep the whole phase's numbers
+        phase1 = self.web.api_leads(self.conn, self.settings, "review", "1")
+        self.assertTrue(all(a["phase"] == 1 for a in phase1["areas"]))
+        self.assertIn("Saint-Laurent", {a["name"] for a in phase1["areas"]})
+
+    def test_other_reject_keeps_the_note(self):
+        self.decide("kijiji:1", action="reject", reason="Other: landlord lives abroad")
+        self.assertEqual(self.conn.execute("SELECT reject_reason FROM leads WHERE id='kijiji:1'").fetchone()[0],
+                         "Other: landlord lives abroad")
+        from desk import learn
+        self.assertEqual(learn.reason_label("Other: landlord lives abroad"), "Other")
+        self.assertEqual(learn.reason_label("Already listed"), "Already with an agency (listed by owner)")
+        self.assertIn("Already with an agency (listed by owner)", self.web.REJECT_REASONS)
+
 
 SAMPLE = Path(__file__).resolve().parents[1] / "docs" / "examples" / "leases-sample.jsonl"
 

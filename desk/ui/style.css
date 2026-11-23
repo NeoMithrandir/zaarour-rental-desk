@@ -301,6 +301,10 @@ main.stats h2 { margin-top: 28px; }
   .toc { display: none; }
 }
 @media (max-width: 640px) {
+  /* One row of area boxes that scrolls sideways, so the ad stays near the top on a phone. */
+  .areas { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+  .areas::-webkit-scrollbar { display: none; }
+  .areas label, .areas button { flex: none; white-space: nowrap; }
   main { padding: 20px 16px 16px; }
   header { padding: 0 16px; gap: 18px; height: 60px; }
   .logo { height: 30px; }
