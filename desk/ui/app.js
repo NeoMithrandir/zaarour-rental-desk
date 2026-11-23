@@ -90,20 +90,62 @@
 
   function setAreas(list) { areas = list; store.set("areas", JSON.stringify(list)); }
 
-  // Tick boxes for the areas of the chosen phase; the number is the cards waiting there in this tab.
+  // Areas within the phase: a button that opens a panel of tick boxes over the page, so the list never moves.
+  // The number by each area is the cards waiting there in this tab. Ticking applies at once.
+  let areaKey = "";
+  const areaPop = $("#areapop"), areaBtn = $("#areabtn");
+  const areasOpen = () => !areaPop.hidden;
+  function openAreas(on) {
+    areaPop.hidden = !on;
+    areaBtn.setAttribute("aria-expanded", on);
+    areaBtn.classList.toggle("open", on);
+    if (!on) return;
+    renderAreas();
+    // Stay above the action bar at the bottom of the screen (a phone shows it as a sheet: CSS).
+    const bar = $(".actionbar"), floor = bar ? bar.getBoundingClientRect().top : innerHeight;
+    areaPop.style.maxHeight = matchMedia("(max-width: 640px)").matches ? "" : Math.max(260, Math.min(560, floor - areaBtn.getBoundingClientRect().bottom - 20)) + "px";
+    (areaPop.querySelector("input:checked") || areaPop.querySelector("input") || areaPop).focus();
+  }
+
   function renderAreas() {
-    const box = $("#areas"), list = data.areas || [], x = box.scrollLeft;  // a phone scrolls the row sideways: keep its place
-    box.hidden = !list.length;
-    box.innerHTML = list.map((x) => `<label class="${areas.includes(x.name) ? "on" : ""} ${x.n ? "" : "none"}" title="${esc(x.name || "Ads with no postal code, city or map point the desk recognises")}">`
-      + `<input type="checkbox" value="${esc(x.name)}"${areas.includes(x.name) ? " checked" : ""}>${esc(areaName(x.name))}${x.n ? ` <b>${x.n.toLocaleString("en-CA")}</b>` : ""}</label>`).join("")
-      + (areas.length ? `<button class="ghost" type="button" data-clear>Every area${phase ? ` in phase ${phase}` : ""}</button>` : "");
-    $$("input", box).forEach((i) => i.addEventListener("change", () => {
-      setAreas(i.checked ? [...areas, i.value] : areas.filter((n) => n !== i.value));
-      i.blur(); load();
-    }));
-    box.scrollLeft = x;
-    const clear = $("[data-clear]", box);
-    if (clear) clear.addEventListener("click", () => { setAreas([]); load(); });
+    const list = data.areas || [];
+    areaBtn.hidden = !list.length;
+    const label = areas.length === 0 ? "" : areas.length === 1 ? areaName(areas[0]) : `${areaName(areas[0])} +${areas.length - 1}`;
+    $("span", areaBtn).textContent = label;
+    areaBtn.classList.toggle("on", areas.length > 0);
+    areaBtn.title = areas.length ? areas.map(areaName).join(", ") : "Pick areas to see only their ads";
+    if (!areasOpen()) return;
+    // Built once per phase, then updated in place, so the box you just ticked keeps focus and the panel its scroll.
+    const key = phase + "|" + list.map((x) => x.name).join("|");
+    if (key !== areaKey) {
+      areaKey = key;
+      const groups = phase ? [[null, list]] : [["Phase 1", list.filter((x) => x.phase === 1)], ["Phase 2", list.filter((x) => x.phase === 2)],
+        ["Not placed", list.filter((x) => x.phase == null)]].filter((g) => g[1].length);
+      areaPop.innerHTML = `<div class="ap-head"><span class="lbl">${phase ? `Phase ${phase} areas` : "All areas"}</span><button class="ghost" type="button" data-clear>Clear</button></div>`
+        + `<div class="ap-body">` + groups.map(([h, xs]) => (h ? `<h3>${h}</h3>` : "") + `<div class="ap-grid">` + xs.map((x) =>
+          `<label title="${esc(x.name || "Ads with no postal code, city or map point the desk recognises")}"><input type="checkbox" value="${esc(x.name)}">`
+          + `<span>${esc(areaName(x.name))}</span><b></b></label>`).join("") + `</div>`).join("") + `</div>`
+        + `<div class="ap-foot"><span class="muted"></span><button class="primary" type="button" data-done>Done</button></div>`;
+      $$("input", areaPop).forEach((i) => i.addEventListener("change", () => {
+        setAreas(i.checked ? [...areas, i.value] : areas.filter((n) => n !== i.value));
+        load();
+      }));
+      $("[data-clear]", areaPop).addEventListener("click", () => { setAreas([]); load(); });
+      $("[data-done]", areaPop).addEventListener("click", () => openAreas(false));
+    }
+    const n = Object.fromEntries(list.map((x) => [x.name, x.n]));
+    $$("label", areaPop).forEach((l) => {
+      const i = $("input", l), k = n[i.value] || 0;
+      i.checked = areas.includes(i.value);
+      l.classList.toggle("on", i.checked);
+      l.classList.toggle("none", !k);
+      $("b", l).textContent = k ? k.toLocaleString("en-CA") : "";
+    });
+    $("[data-clear]", areaPop).hidden = !areas.length;
+    const shown = data.leads.length;
+    $(".ap-foot span", areaPop).textContent = areas.length
+      ? `${shown.toLocaleString("en-CA")} ${shown === 1 ? "card" : "cards"} in ${areas.length} ${areas.length === 1 ? "area" : "areas"}`
+      : "None ticked: every area shows";
   }
 
   // ------------------------------------------------------------ pieces
@@ -676,6 +718,8 @@
   $$("#tabs button").forEach((b) => b.addEventListener("click", () => go(b.dataset.tab)));
   $$("#phase button").forEach((b) => b.addEventListener("click", () => { phase = b.dataset.phase; store.set("phase", phase); load(); }));
   $$("#view button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+  areaBtn.addEventListener("click", () => openAreas(!areasOpen()));
+  document.addEventListener("click", (e) => { if (areasOpen() && !e.target.closest("#areapick")) openAreas(false); });
   $("#helpbtn").addEventListener("click", () => $("#help").showModal());
 
   const manual = $("#manual"), addbtn = $("#addbtn");
@@ -696,6 +740,8 @@
   });
 
   document.addEventListener("keydown", (e) => {
+    // The area panel takes the keyboard while it's open: Esc closes it, and no letter acts on the ad behind it.
+    if (areasOpen()) { if (e.key === "Escape") { e.preventDefault(); openAreas(false); areaBtn.focus(); } return; }
     const typing = ["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName);
     if (e.key === "Escape") {
       if (typing) { e.target.blur(); return; }
