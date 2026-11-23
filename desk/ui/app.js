@@ -720,6 +720,8 @@
   $$("#view button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   areaBtn.addEventListener("click", () => openAreas(!areasOpen()));
   document.addEventListener("click", (e) => { if (areasOpen() && !e.target.closest("#areapick")) openAreas(false); });
+  // Tabbing out of the panel closes it too.
+  $("#areapick").addEventListener("focusout", (e) => { if (areasOpen() && e.relatedTarget && !e.relatedTarget.closest("#areapick")) openAreas(false); });
   $("#helpbtn").addEventListener("click", () => $("#help").showModal());
 
   const manual = $("#manual"), addbtn = $("#addbtn");
