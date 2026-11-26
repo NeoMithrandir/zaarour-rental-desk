@@ -311,6 +311,18 @@ class ReviewScreenTests(unittest.TestCase):
         self.decide("kijiji:1", action="unsend")  # undo of Mark sent
         self.assertEqual(self.status("kijiji:1"), "approved")
 
+    def test_approve_from_review_marks_sent_and_undo_puts_it_back(self):
+        self.decide("kijiji:1", action="approve", sent=True, message="Bonjour")
+        row = self.conn.execute("SELECT status, sent_at, message FROM leads WHERE id='kijiji:1'").fetchone()
+        self.assertEqual((row[0], row[2]), ("sent", "Bonjour"))
+        self.assertTrue(row[1])
+        sent = [l["id"] for l in self.web.api_leads(self.conn, self.settings, "sent")["leads"]]
+        self.assertEqual(sent, ["kijiji:1"])
+        self.assertEqual(self.web.api_leads(self.conn, self.settings, "approved")["leads"], [])
+        self.decide("kijiji:1", action="undo")  # Z after Approve
+        row = self.conn.execute("SELECT status, sent_at FROM leads WHERE id='kijiji:1'").fetchone()
+        self.assertEqual(tuple(row), ("new", None))
+
     def test_undo_broker_reject_forgets_poster(self):
         self.decide("kijiji:1", action="reject", reason="Broker")
         self.assertIn("p1", db.known_posters(self.conn))

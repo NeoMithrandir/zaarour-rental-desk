@@ -580,9 +580,10 @@ def api_decide(conn, lead_id, body, settings=None):
     if action in LOGGED:  # the learning log: every decision and outcome, with the ad's signals
         db.log_event(conn, db.lead_dict(r), action, body.get("reason") or body.get("outcome"),
                      template or r["template"], edited, approach or r["approach"])
-    if action == "approve":
-        conn.execute("UPDATE leads SET status='approved', decided_at=?, message=?, template=?, approach=? WHERE id=?",
-                     (t, body.get("message", ""), template, approach, lead_id))
+    if action == "approve":  # sent: the review screen's Approve, which counts the ad as sent too (undo puts it back in review)
+        conn.execute("UPDATE leads SET status=?, decided_at=?, sent_at=?, message=?, template=?, approach=? WHERE id=?",
+                     ("sent" if body.get("sent") else "approved", t, t if body.get("sent") else None,
+                      body.get("message", ""), template, approach, lead_id))
     elif action == "sent":
         conn.execute("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message), template=COALESCE(?, template), "
                      "approach=COALESCE(?, approach) WHERE id=?", (t, body.get("message"), template, approach, lead_id))

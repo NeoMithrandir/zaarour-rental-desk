@@ -1,5 +1,5 @@
 // Stefan's morning review screen: one ad at a time (or a list with bulk actions), undo, and a To send queue.
-// Nothing is ever sent from here: Approve copies the message and opens the ad; Stefan sends it on the board,
+// Nothing is ever sent from here: Approve copies the message, opens the ad and marks it sent; Stefan sends it on the board,
 // where the "Fill from desk" bookmark puts the message in the board's own message box.
 (function () {
   const $ = (s, el) => (el || document).querySelector(s);
@@ -595,8 +595,8 @@
       return toast("The message couldn't be copied automatically. It's selected: press ⌘C first.", false, ["I copied it, open the ad", () => approve(l, true)]);
     }
     openAd(l, text);
-    await act(l, { action: "approve", message: text, shown: { custom: m.custom, lang: m.lang } }, "Approved. Ad opened: its message box fills by itself with the desk's Chrome extension (or click Fill from desk, or ⌘V). Send it, then come back.");
-    pendingSend = { lead: l, at: Date.now() };
+    // Approving counts as sending: the ad goes straight to Sent (Z puts it back in review).
+    await act(l, { action: "approve", sent: true, message: text, shown: { custom: m.custom, lang: m.lang } }, "Approved and marked sent. Ad opened: its message box fills by itself with the desk's Chrome extension (or click Fill from desk, or ⌘V). Send it on the board.");
   }
 
   const verb = (b) => ({ approve: "approved", reject: `rejected${b.reason ? " · " + b.reason : ""}`, later: "moved to Later", undo: "moved back to review",

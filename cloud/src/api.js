@@ -187,9 +187,9 @@ export async function apiDecide(desk, leadId, body) {
   }
   if (LOGGED.has(action)) stmts.push(eventStmt(db, lead, action, body.reason || body.outcome, template || r.template, edited, approach || r.approach, by));
   const upd = (sql, ...args) => stmts.push(db.prepare(sql).bind(...args));
-  if (action === "approve") {
-    upd("UPDATE leads SET status='approved', decided_at=?, message=?, template=?, approach=?, decided_by=?, sync_at=? WHERE id=?",
-      t, body.message || "", template, approach, by, s, leadId);
+  if (action === "approve") { // sent: the review screen's Approve, which counts the ad as sent too (undo puts it back in review)
+    upd("UPDATE leads SET status=?, decided_at=?, sent_at=?, message=?, template=?, approach=?, decided_by=?, sync_at=? WHERE id=?",
+      body.sent ? "sent" : "approved", t, body.sent ? t : null, body.message || "", template, approach, by, s, leadId);
   } else if (action === "sent") {
     upd("UPDATE leads SET status='sent', sent_at=?, message=COALESCE(?, message), template=COALESCE(?, template), approach=COALESCE(?, approach), "
       + "decided_by=COALESCE(decided_by, ?), sync_at=? WHERE id=?", t, body.message ?? null, template, approach, by, s, leadId);
