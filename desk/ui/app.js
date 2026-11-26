@@ -650,16 +650,23 @@
 
   const short = (l) => "“" + (l.title.length > 48 ? l.title.slice(0, 46) + "…" : l.title) + "”";
 
-  let toastTimer;
+  // Anything that can be undone shows an Undo button for 15 seconds, with the seconds counting down.
+  const UNDO_SECONDS = 15;
+  let toastTimer, toastTick;
   function toast(text, withUndo, extra) {
     const t = $("#toast");
-    t.innerHTML = `<span>${esc(text)}</span>` + (withUndo ? `<button data-undo>Undo <kbd>Z</kbd></button>` : "") + (extra ? `<button data-extra>${esc(extra[0])}</button>` : "");
+    t.innerHTML = `<span>${esc(text)}</span>` + (withUndo ? `<button data-undo>Undo <span class="secs">${UNDO_SECONDS}s</span> <kbd>Z</kbd></button><i class="timer" style="animation-duration:${UNDO_SECONDS}s"></i>` : "")
+      + (extra ? `<button data-extra>${esc(extra[0])}</button>` : "");
     if (extra) $("[data-extra]", t).addEventListener("click", () => { t.hidden = true; extra[1](); });
     t.hidden = false;
     const u = $("[data-undo]", t);
     if (u) u.addEventListener("click", undo);
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), extra ? 30000 : withUndo ? 8000 : 6000);
+    clearTimeout(toastTimer); clearInterval(toastTick);
+    if (withUndo) {
+      const end = Date.now() + UNDO_SECONDS * 1000, secs = $(".secs", t);
+      toastTick = setInterval(() => { secs.textContent = Math.max(0, Math.ceil((end - Date.now()) / 1000)) + "s"; }, 250);
+    }
+    toastTimer = setTimeout(() => { t.hidden = true; clearInterval(toastTick); }, extra ? 30000 : withUndo ? UNDO_SECONDS * 1000 : 6000);
   }
 
   // After Approve, Stefan sends on the board in another tab. When he comes back, ask once.

@@ -242,6 +242,11 @@ button.linkish { border: 0; background: none; padding: 0; color: inherit; font: 
 body:not(.has-bar) .toast { bottom: 24px; }
 .toast button { background: transparent; color: var(--bg); border-color: rgba(240,239,236,.35); padding: 6px 12px; white-space: nowrap; }
 @media (prefers-color-scheme: dark) { .toast button { border-color: rgba(16,16,16,.3); } }
+.toast { overflow: hidden; }
+.toast .secs { font-variant-numeric: tabular-nums; opacity: .8; }
+.toast .timer { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--bg); opacity: .55; transform-origin: left; animation: undo-timer linear forwards; }
+@keyframes undo-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .toast .timer { animation: none; display: none; } }
 @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } }
 .help { border: 1px solid var(--line-2); border-radius: var(--r); padding: 26px 30px; max-width: 520px; width: calc(100% - 32px); background: var(--panel); color: var(--ink); box-shadow: var(--shadow-pop); }
 .help::backdrop { background: rgba(16,16,16,.4); }
